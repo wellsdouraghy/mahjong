@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mahjong — 3D Multiplayer</title>
+  <link rel="stylesheet" href="/style.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "/vendor/three.module.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <!-- 3D canvas mounts here -->
+  <div id="scene-container"></div>
+
+  <!-- Connection status pill -->
+  <div id="conn-status" class="conn-status offline">Connecting…</div>
+
+  <!-- ============ LOBBY OVERLAY ============ -->
+  <div id="lobby" class="overlay">
+    <div class="lobby-backdrop"></div>
+
+    <!-- Name entry screen -->
+    <section id="name-screen" class="lobby-card name-card">
+      <div class="brand">
+        <div class="brand-tile">🀄</div>
+        <h1>Mahjong</h1>
+        <p class="brand-sub">3D Multiplayer · Hong Kong style</p>
+      </div>
+      <form id="name-form" class="name-form" autocomplete="off">
+        <label for="name-input">Choose your name</label>
+        <input id="name-input" type="text" maxlength="20" placeholder="Your name" required />
+        <button type="submit" class="btn btn-primary btn-block">Enter Lobby</button>
+      </form>
+    </section>
+
+    <!-- Room list / create screen -->
+    <section id="rooms-screen" class="lobby-card rooms-card hidden">
+      <header class="rooms-header">
+        <div>
+          <h2>Rooms</h2>
+          <p class="you-line" id="you-line"></p>
+        </div>
+      </header>
+
+      <div class="room-entry">
+        <div class="entry-card">
+          <div class="entry-title">Create a room</div>
+          <div class="entry-sub">Get a code to share with friends.</div>
+          <div class="create-room">
+            <input id="room-name-input" type="text" maxlength="24" placeholder="New room name" />
+            <button id="create-room-btn" class="btn btn-primary">Create Room</button>
+          </div>
+        </div>
+        <div class="entry-card">
+          <div class="entry-title">Join by code</div>
+          <div class="entry-sub">Enter a friend's room code.</div>
+          <div class="join-code">
+            <input id="join-code-input" type="text" maxlength="8" placeholder="Room code" autocapitalize="characters" spellcheck="false" />
+            <button id="join-code-btn" class="btn btn-primary">Join</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="room-list" class="room-list"></div>
+      <p id="no-rooms" class="empty-note hidden">No public rooms — create one or join by code.</p>
+    </section>
+
+    <!-- In-room panel -->
+    <section id="room-screen" class="lobby-card room-card hidden">
+      <header class="room-panel-header">
+        <h2 id="room-title">Room</h2>
+        <span id="room-status-badge" class="badge">waiting</span>
+      </header>
+      <div id="room-code-box" class="room-code-box hidden">
+        <div class="rc-text">
+          <span class="rc-label">Share this code</span>
+          <span id="room-code-value" class="rc-value">—</span>
+        </div>
+        <button id="copy-code-btn" class="btn btn-ghost btn-sm">Copy</button>
+      </div>
+      <div class="seats-label">Seats</div>
+      <ul id="room-players" class="room-players"></ul>
+      <div class="room-actions">
+        <button id="start-game-btn" class="btn btn-primary hidden">Start Game</button>
+        <button id="leave-room-btn" class="btn btn-ghost">Leave Room</button>
+      </div>
+      <p class="host-note" id="host-note"></p>
+    </section>
+  </div>
+
+  <!-- ============ IN-GAME HUD ============ -->
+  <div id="hud" class="hud hidden">
+    <div id="turn-banner" class="turn-banner"></div>
+
+    <!-- Match progress + running balances -->
+    <div id="match-bar" class="match-bar hidden">
+      <div id="match-progress" class="match-progress"></div>
+      <div id="match-balances" class="match-balances"></div>
+    </div>
+
+    <div id="wall-count" class="wall-count">
+      <span class="wall-label">Wall</span>
+      <span id="wall-num" class="wall-num">—</span>
+    </div>
+
+    <!-- Big animated claim prompt (buttons + claimable tile). No timer: stays open until you act. -->
+    <div id="claim-panel" class="claim-panel hidden">
+      <div id="claim-head" class="claim-head"></div>
+      <div id="claim-buttons" class="claim-buttons"></div>
+      <div id="claim-note" class="claim-note">You must Pass or claim to continue.</div>
+    </div>
+
+    <!-- On-your-turn self actions (Kong declarations) -->
+    <div id="self-actions" class="self-actions hidden"></div>
+
+    <!-- Corner controls -->
+    <button id="leave-game-btn" class="corner-btn corner-left" title="Leave the match">
+      <span class="corner-icon">🚪</span><span class="corner-label">Leave</span>
+    </button>
+    <button id="scoreboard-btn" class="corner-btn corner-right" title="Toggle scoreboard">
+      <span class="corner-icon">📊</span><span class="corner-label">Scoreboard</span>
+    </button>
+
+    <!-- Scoreboard panel (built by scoreboard.js) -->
+    <div id="scoreboard-panel" class="scoreboard-panel hidden"></div>
+
+    <!-- Between-hand settlement popup (built by scoreboard.js) -->
+    <div id="settlement-popup" class="settlement-popup hidden"></div>
+
+    <!-- Match-over overlay (built by scoreboard.js) -->
+    <div id="match-over" class="match-over-overlay hidden"></div>
+
+    <!-- Winner overlay (single-round / no-match fallback) -->
+    <div id="winner-overlay" class="winner-overlay hidden">
+      <div class="winner-card">
+        <div class="winner-crown">🏆</div>
+        <h2 id="winner-title">Winner</h2>
+        <p id="winner-subtitle" class="winner-sub"></p>
+        <div id="winner-total" class="winner-total hidden"></div>
+        <div class="winning-hand-label">Winning hand</div>
+        <div id="winning-hand" class="winning-hand"></div>
+        <div id="winner-fans" class="winner-fans"></div>
+        <button id="back-to-room-btn" class="btn btn-primary">Back to Room</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>
