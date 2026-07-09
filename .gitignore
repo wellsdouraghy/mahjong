@@ -3,3 +3,5 @@ node_modules/
 *.log
 scratchpad/
 .claude/launch.json
+
+.claude/
