@@ -773,6 +773,7 @@ input[type="text"]::placeholder { color: var(--text-faint); }
   margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);
   display: flex; align-items: center; gap: 10px;
 }
+.sb-mandie + .sb-mandie { margin-top: 9px; padding-top: 0; border-top: none; }
 .sb-toggle-sm .sb-toggle-track { width: 30px; height: 17px; }
 .sb-toggle-sm .sb-toggle-thumb { width: 12px; height: 12px; top: 2.5px; left: 2.5px; }
 .sb-toggle-sm input:checked + .sb-toggle-track .sb-toggle-thumb { transform: translateX(13px); }

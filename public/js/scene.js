@@ -156,6 +156,20 @@ let particleFall = 3.0;      // base fall speed for the active season
 let particleSway = 1.2;      // horizontal sway amplitude
 const particleTex = {};      // cached canvas textures by kind
 const PARTICLE_COUNT = 170;
+
+// User toggle: falling seasonal particles (petals/leaves/snow). Persisted so the
+// preference survives reloads. The rest of the seasonal theming stays either way.
+const SEASON_FX_KEY = "mj_seasonFx";
+let seasonFxEnabled = (() => {
+  try { return localStorage.getItem(SEASON_FX_KEY) !== "0"; } catch (e) { return true; }
+})();
+export function getSeasonFx() { return seasonFxEnabled; }
+export function setSeasonFx(on) {
+  seasonFxEnabled = !!on;
+  try { localStorage.setItem(SEASON_FX_KEY, seasonFxEnabled ? "1" : "0"); } catch (e) {}
+  // Re-apply the current season's particles under the new setting.
+  configParticles(appliedSeason >= 0 ? (SEASONS[appliedSeason] || SEASONS[0]).particle : null);
+}
 const P_X = 38, P_ZMIN = -34, P_ZMAX = 42, P_YTOP = 18, P_YBOT = -9.0; // just above FLOOR_Y (-9.4)
 
 let renderer, scene, camera, container;
@@ -685,7 +699,7 @@ function buildParticles() {
 
 function configParticles(kind) {
   if (!particles) return;
-  if (!kind) { particleActive = false; particles.visible = false; return; }
+  if (!kind || !seasonFxEnabled) { particleActive = false; particles.visible = false; return; }
   particleActive = true;
   particles.visible = true;
   particles.material.map = getParticleTexture(kind);

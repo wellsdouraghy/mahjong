@@ -2,6 +2,7 @@
 // between-hand settlement popup, and match-over overlay.
 import * as main from "./main.js";
 import { makeChip } from "./hud.js";
+import { setSeasonFx, getSeasonFx } from "./scene.js";
 
 let els = {};
 let lastGs = null;
@@ -307,6 +308,24 @@ function renderPanel() {
   mHint.textContent = "bots play slower";
   mandie.appendChild(mHint);
   els.panel.appendChild(mandie);
+
+  // Seasonal falling effects (petals/leaves/snow) — a local visual toggle.
+  const fx = document.createElement("div");
+  fx.className = "sb-mandie";
+  const fxOn = getSeasonFx();
+  const fxLabel = document.createElement("label");
+  fxLabel.className = "sb-toggle sb-toggle-sm";
+  fxLabel.innerHTML =
+    `<input type="checkbox" ${fxOn ? "checked" : ""}/>` +
+    `<span class="sb-toggle-track"><span class="sb-toggle-thumb"></span></span>` +
+    `<span class="sb-toggle-label">FALLING EFFECTS</span>`;
+  fxLabel.querySelector("input").addEventListener("change", (e) => setSeasonFx(e.target.checked));
+  fx.appendChild(fxLabel);
+  const fxHint = document.createElement("span");
+  fxHint.className = "sb-mandie-hint";
+  fxHint.textContent = "petals / leaves / snow";
+  fx.appendChild(fxHint);
+  els.panel.appendChild(fx);
 }
 
 function historyRow(gs, h) {
