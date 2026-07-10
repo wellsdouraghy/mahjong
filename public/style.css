@@ -768,6 +768,16 @@ input[type="text"]::placeholder { color: var(--text-faint); }
 .sb-toggle input:checked + .sb-toggle-track { background: linear-gradient(90deg, var(--blue), var(--purple)); }
 .sb-toggle input:checked + .sb-toggle-track .sb-toggle-thumb { transform: translateX(16px); }
 .sb-toggle-label { font-size: 12px; font-weight: 700; color: var(--text-dim); }
+/* MANDIE MODE — small, subtle footer toggle. */
+.sb-mandie {
+  margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+}
+.sb-toggle-sm .sb-toggle-track { width: 30px; height: 17px; }
+.sb-toggle-sm .sb-toggle-thumb { width: 12px; height: 12px; top: 2.5px; left: 2.5px; }
+.sb-toggle-sm input:checked + .sb-toggle-track .sb-toggle-thumb { transform: translateX(13px); }
+.sb-toggle-sm .sb-toggle-label { font-size: 10.5px; letter-spacing: 0.6px; }
+.sb-mandie-hint { font-size: 10.5px; color: var(--text-faint); font-style: italic; }
 .sb-owe-list { display: flex; flex-direction: column; gap: 6px; }
 .sb-owe-row {
   display: flex; align-items: center; gap: 8px;

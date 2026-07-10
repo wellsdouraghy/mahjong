@@ -5,13 +5,20 @@
 
 // Delays are overridable via env (defaults unchanged) so automated tests can run
 // full matches quickly. Read at call time so the env can be set before boot.
-function botTurnDelay() {
-  const v = Number(process.env.MAHJONG_BOT_TURN_MS);
-  return Number.isFinite(v) && v >= 0 ? v : 800;
+// "MANDIE MODE" (match.slowBots) makes the bots deliberate noticeably slower.
+const SLOW_MULT = 3;
+function slowFactor(game) {
+  return (game && game.match && game.match.slowBots) ? SLOW_MULT : 1;
 }
-function botClaimDelay() {
+function botTurnDelay(game) {
+  const v = Number(process.env.MAHJONG_BOT_TURN_MS);
+  const base = Number.isFinite(v) && v >= 0 ? v : 800;
+  return base * slowFactor(game);
+}
+function botClaimDelay(game) {
   const v = Number(process.env.MAHJONG_BOT_CLAIM_MS);
-  return Number.isFinite(v) && v >= 0 ? v : 60;
+  const base = Number.isFinite(v) && v >= 0 ? v : 60;
+  return base * slowFactor(game);
 }
 
 function parseKind(kind) {
@@ -75,7 +82,7 @@ function takeBotTurn(game, seat) {
       const tileId = chooseDiscard(game, seat);
       if (tileId != null) game.discard(seat, tileId);
     } catch (e) { /* never crash on bot action */ }
-  }, botTurnDelay());
+  }, botTurnDelay(game));
 }
 
 // Called when a claim window opens and this bot is eligible.
@@ -94,7 +101,7 @@ function handleBotClaim(game, seat) {
       if (opts.includes('ron')) game.handleClaim(seat, 'ron');
       else game.handleClaim(seat, 'pass');
     } catch (e) { /* never crash on bot action */ }
-  }, botClaimDelay());
+  }, botClaimDelay(game));
 }
 
 module.exports = { takeBotTurn, handleBotClaim, chooseDiscard };

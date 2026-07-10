@@ -253,6 +253,7 @@ function startMatch(room) {
     roomId: room.id,
     roomName: room.name,
     seats,
+    slowBots: !!room.slowBots,   // "MANDIE MODE" persists across matches in a room
     onChange: (m) => onMatchChange(room, m),
   });
   room.match = match;
@@ -455,6 +456,15 @@ function handleMessage(client, msg) {
       } catch (e) {
         sendError(client.ws, e.message);
       }
+      break;
+    }
+
+    case 'setBotSpeed': {
+      // "MANDIE MODE" — any seated player can slow the bots down for the room.
+      const room = client.roomId ? rooms.get(client.roomId) : null;
+      if (!room) { sendError(client.ws, 'not in a room'); return; }
+      room.slowBots = !!msg.slow;
+      if (room.match) room.match.setSlowBots(room.slowBots);
       break;
     }
 

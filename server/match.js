@@ -56,6 +56,12 @@ class Match {
     this.matchComplete = false;
     this.advanceTimer = null;
     this.destroyed = false;
+    this.slowBots = !!opts.slowBots;   // "MANDIE MODE" — bots deliberate slower
+  }
+
+  setSlowBots(v) {
+    this.slowBots = !!v;
+    this.emit();   // sync the toggle to every client
   }
 
   // --- lifecycle ------------------------------------------------------------
@@ -229,6 +235,7 @@ class Match {
       roundWind: this.currentRoundWind,
       dealerSeat: this.currentDealer,
       matchComplete: this.matchComplete,
+      slowBots: !!this.slowBots,
       players: this.seats.map((s, i) => ({
         seat: i,
         balance: this.balances[i],

@@ -286,6 +286,24 @@ function renderPanel() {
     : "Raw: net of each pair's payments.";
   owe.appendChild(hint);
   els.panel.appendChild(owe);
+
+  // MANDIE MODE — a small toggle at the bottom that slows the bots down.
+  const mandie = document.createElement("div");
+  mandie.className = "sb-mandie";
+  const slow = !!(lastGs && lastGs.match && lastGs.match.slowBots);
+  const mLabel = document.createElement("label");
+  mLabel.className = "sb-toggle sb-toggle-sm";
+  mLabel.innerHTML =
+    `<input type="checkbox" ${slow ? "checked" : ""}/>` +
+    `<span class="sb-toggle-track"><span class="sb-toggle-thumb"></span></span>` +
+    `<span class="sb-toggle-label">MANDIE MODE</span>`;
+  mLabel.querySelector("input").addEventListener("change", (e) => main.setBotSpeed(e.target.checked));
+  mandie.appendChild(mLabel);
+  const mHint = document.createElement("span");
+  mHint.className = "sb-mandie-hint";
+  mHint.textContent = "bots play slower";
+  mandie.appendChild(mHint);
+  els.panel.appendChild(mandie);
 }
 
 function historyRow(gs, h) {
