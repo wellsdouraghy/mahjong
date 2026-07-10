@@ -92,6 +92,27 @@ let interactable = false; // true only on your discard turn
 const meshes = new Map();  // key -> mesh
 const seen = new Set();    // keys present this reconcile pass
 
+// ---- Opening deal animation (feature 1) ----
+// On a fresh deal we drop every tile mesh and recreate it at a central staging
+// point, then fly it out to its target after a staggered per-tile delay. Hand +
+// wall tiles deal first (batched around the table); flowers pop in last.
+let wasPlaying = false;          // previous snapshot's phase === "playing"
+let prevHandNumber = null;       // previous match.handNumber (detect a new hand)
+let dealing = false;             // true only DURING a fresh-deal reconcile pass
+let dealSeq = 0;                 // running index of staggered non-flower tiles
+let dealStartMs = 0;             // performance.now() at deal start
+let dealMaxDelayMs = 0;          // latest non-flower deal delay assigned
+const dealFlowerMeshes = [];     // flower meshes created this deal (delayed to the end)
+const DEAL_STAGE = new THREE.Vector3(0, 5, 0); // staging point tiles fly out from
+const DEAL_BATCH = 7;            // tiles per stagger step (a "batch" around the table)
+const DEAL_STEP_MS = 45;         // gap between successive batches
+const DEAL_FLOWER_STEP_MS = 100; // gap between flower pop-ins at the end
+
+// ---- Flower petal burst (feature 2) ----
+let prevYourFlowers = null;      // previous local flower count (null = unknown)
+let petalLayer = null;           // absolutely-positioned overlay div over the canvas
+let petalStyleEl = null;         // injected @keyframes (once)
+
 // Opponent avatar rigs, indexed by display position (1,2,3). dp 0 = you = none.
 const avatars = [null, null, null, null];
 let turnLight = null;      // single roaming spotlight for the active opponent
@@ -876,6 +897,32 @@ export function update(state) {
   currentState = state;
   if (!state) return;
 
+  // ---- Detect a FRESH DEAL (feature 1) ----
+  // A new hand is: the first playing snapshot after entering a game, a non-playing
+  // → playing transition, or an increment of match.handNumber. Only then do we
+  // re-stage every tile and deal it in; ordinary in-hand snapshots reconcile normally.
+  const isPlaying = state.phase === "playing";
+  const handNumber = state.match ? state.match.handNumber : null;
+  let freshDeal = false;
+  if (isPlaying) {
+    if (!wasPlaying) freshDeal = true;
+    else if (handNumber != null && handNumber !== prevHandNumber) freshDeal = true;
+  }
+  wasPlaying = isPlaying;
+  prevHandNumber = handNumber;
+
+  if (freshDeal) {
+    // Drop all existing tiles so this pass recreates them at the staging point.
+    for (const [, mesh] of meshes) { tableGroup.remove(mesh); disposeMesh(mesh); }
+    meshes.clear();
+    dealing = true;
+    dealSeq = 0;
+    dealStartMs = performance.now();
+    dealMaxDelayMs = dealStartMs;
+    dealFlowerMeshes.length = 0;
+    prevYourFlowers = 0; // the deal's flowers count as freshly "gained" (petal burst)
+  }
+
   const you = state.yourSeat;
   seen.clear();
 
@@ -950,6 +997,32 @@ export function update(state) {
       meshes.delete(key);
     }
   }
+
+  // ---- Finish the deal: flowers pop in AFTER the whole hand has dealt ----
+  let flowerArriveMs = 0;
+  if (dealing) {
+    const flowerBase = dealMaxDelayMs + DEAL_STEP_MS * 3;
+    dealFlowerMeshes.forEach((mesh, i) => {
+      mesh.userData.dealDelay = flowerBase + i * DEAL_FLOWER_STEP_MS;
+    });
+    flowerArriveMs = flowerBase; // when the first flower lands (to sync the petals)
+    dealing = false;
+  }
+
+  // ---- Feature 2: petal burst when the LOCAL player gains a flower ----
+  const me = state.players.find((p) => p.seat === you);
+  const yourFlowers = me ? (me.flowers || []).length : 0;
+  if (prevYourFlowers != null && yourFlowers > prevYourFlowers) {
+    const gained = yourFlowers - prevYourFlowers;
+    if (freshDeal && flowerArriveMs > 0) {
+      // Sync the burst to when the flowers actually pop in at the deal's end.
+      const delay = Math.max(0, flowerArriveMs - performance.now());
+      setTimeout(() => burstPetals(gained), delay);
+    } else {
+      burstPetals(gained);
+    }
+  }
+  prevYourFlowers = yourFlowers;
 }
 
 // Lay a seat's exposed melds and concealed hand as ONE left-anchored single row
@@ -1022,11 +1095,11 @@ function placeSeatRow(dp, isYou, seat, melds, handTiles, handCount, drawn) {
 //     taller than the 2-high wall) sitting FLUSH against the back end of the
 //     live wall. Its height is how you read "this is the back of the deck".
 //   • Each replacement draw (`backTaken`) peels ONE tile off the TOP of the
-//     pile, so its height counts down (4 → 3 → 2). Once it reaches 2 the next
-//     draw re-stacks it back to `dead` and the pile walks one stack toward the
+//     pile, so its height counts down to a floor of 3 (4 → 3). The next draw
+//     re-stacks it back to `dead` and the pile walks one stack toward the
 //     FRONT (left along the row), absorbing a live stack; the vacated back stack
-//     empties. So the height cycles dead,dead-1,dead-2 (4,3,2,4,3,2…) and the
-//     tall back-marker always stays flush against the remaining wall.
+//     empties. So the height cycles 4,3,4,3… (always 3 or 4) and the tall
+//     back-marker always stays flush against the remaining wall.
 //
 // The full physical wall (`wallCap`) is the running max of tiles ever present
 // (live + dead + already-taken replacements) — established at the deal, then it
@@ -1050,14 +1123,14 @@ function placeWall(count, backTaken, deadCount) {
   const stacksPerSide = Math.max(1, Math.ceil(cap / 8));
   const cols = stacksPerSide * 4;
 
-  // The dead-wall pile depletes ONE tile per replacement draw, cycling
-  // dead → dead-1 → dead-2 and refilling to `dead` on the draw after it hits the
-  // floor (for dead=4: heights 4,3,2,4,3,2…). Each refill the pile walks one
-  // stack toward the front, absorbing a live stack so it stays flush.
-  const cycle = Math.max(1, dead - 1);       // draws before a refill (3 for dead=4)
+  // The dead-wall pile depletes ONE tile per replacement draw down to a floor of
+  // 3 (never lower), then refills to `dead` on the next draw — so the back always
+  // shows 3 or 4 tiles (for dead=4: heights 4,3,4,3…). Each refill the pile walks
+  // one stack toward the front, absorbing a live stack so it stays flush.
+  const cycle = Math.max(1, dead - 2);       // draws before a refill (2 for dead=4 → floor 3)
   const walk = Math.floor(taken / cycle);    // columns advanced (one per refill)
   const markerCol = Math.max(0, cols - 1 - walk);
-  const markerH = Math.max(1, dead - (taken % cycle));
+  const markerH = Math.max(3, dead - (taken % cycle));
 
   // Live wall: 2-high stacks packed against the FRONT side of the pile, so the
   // front-most stack goes partial/empty first as `count` falls.
@@ -1107,9 +1180,24 @@ function placeTile(key, kind, faceDown, dp, lx, ly, lz, qLocal, extra) {
   }
   if (!mesh) {
     mesh = makeTileMesh(kind, { faceDown });
-    const wp0 = rotateLocal(dp, lx, ly, lz);
-    mesh.position.copy(wp0);
     mesh.quaternion.copy(seatQuat(dp).multiply(qLocal));
+    if (dealing) {
+      // Opening deal: start at the central staging point, hidden, and fly out to
+      // the target once a staggered per-tile delay elapses (consumed in animate()).
+      mesh.position.copy(DEAL_STAGE);
+      mesh.visible = false;
+      if (extra && extra.flower) {
+        mesh.userData.dealDelay = Infinity; // real delay assigned after the hand deals
+        dealFlowerMeshes.push(mesh);
+      } else {
+        const delay = dealStartMs + Math.floor(dealSeq / DEAL_BATCH) * DEAL_STEP_MS;
+        dealSeq++;
+        mesh.userData.dealDelay = delay;
+        if (delay > dealMaxDelayMs) dealMaxDelayMs = delay;
+      }
+    } else {
+      mesh.position.copy(rotateLocal(dp, lx, ly, lz));
+    }
     tableGroup.add(mesh);
     meshes.set(key, mesh);
   }
@@ -1245,7 +1333,7 @@ function updateHover() {
   if (interactable) {
     raycaster.setFromCamera(pointer, camera);
     const handMeshes = [];
-    for (const m of meshes.values()) if (m.userData.isHand) handMeshes.push(m);
+    for (const m of meshes.values()) if (m.userData.isHand && m.visible) handMeshes.push(m);
     const hits = raycaster.intersectObjects(handMeshes, false);
     if (hits.length) newHover = hits[0].object;
   }
@@ -1267,8 +1355,16 @@ function animate() {
 
   // Tiles: lerp toward targets (+ hover lift, + claimable lift/pulse).
   const claimPulse = 0.5 + 0.5 * Math.sin(t * 6);   // 0..1 shared claim pulse
+  const nowMs = performance.now();
   for (const mesh of meshes.values()) {
     const u = mesh.userData;
+    // Opening deal: hold hidden at the staging point until this tile's turn, then
+    // pop visible and let the normal lerp fly it out to its target.
+    if (u.dealDelay != null) {
+      if (nowMs < u.dealDelay) continue;
+      mesh.visible = true;
+      u.dealDelay = null;
+    }
     if (u.targetPos) {
       let lift = mesh === hovered ? 0.5 : 0;
       if (u.claimable) {
@@ -1366,7 +1462,76 @@ export function clearScene() {
   wallCap = 0;
   hovered = null;
   currentState = null;
+  // Reset deal + petal tracking so the next game re-deals from scratch.
+  wasPlaying = false;
+  prevHandNumber = null;
+  prevYourFlowers = null;
+  dealing = false;
+  dealFlowerMeshes.length = 0;
+  if (petalLayer) { petalLayer.remove(); petalLayer = null; }
   resetCamera();
+}
+
+// ================= flower petal burst (feature 2) =================
+// Self-contained screen-space overlay: a handful of little flower glyphs that
+// fall + drift + spin down across the view and fade, then auto-remove. Cheap
+// (pure CSS animation, no per-frame JS) and self-cleaning.
+const PETAL_GLYPHS = ["🌸", "🌺", "💮", "🏵️", "🌷"];
+
+function ensurePetalLayer() {
+  if (!petalStyleEl) {
+    petalStyleEl = document.createElement("style");
+    petalStyleEl.textContent =
+      "@keyframes mjPetalFall{" +
+      "0%{transform:translate(var(--mjx),-8vh) rotate(0deg) scale(.6);opacity:0}" +
+      "12%{opacity:1}" +
+      "88%{opacity:1}" +
+      "100%{transform:translate(calc(var(--mjx) + var(--mjdx)),var(--mjend)) rotate(var(--mjrot)) scale(1);opacity:0}}";
+    document.head.appendChild(petalStyleEl);
+  }
+  if (!petalLayer || !petalLayer.isConnected) {
+    petalLayer = document.createElement("div");
+    petalLayer.style.cssText =
+      "position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:30;";
+    (container || document.body).appendChild(petalLayer);
+  }
+  return petalLayer;
+}
+
+// A cheerful burst of falling petals — bigger when several flowers arrive at once.
+function burstPetals(gained) {
+  const layer = ensurePetalLayer();
+  const W = (container && container.clientWidth) || window.innerWidth;
+  const H = (container && container.clientHeight) || window.innerHeight;
+  const n = Math.min(30, 9 + Math.max(1, gained) * 7);
+  let maxLife = 0;
+  for (let i = 0; i < n; i++) {
+    const p = document.createElement("div");
+    p.textContent = PETAL_GLYPHS[(Math.random() * PETAL_GLYPHS.length) | 0];
+    const size = 16 + Math.random() * 22;
+    const startX = Math.random() * W;
+    const drift = (Math.random() * 2 - 1) * 140;
+    const rot = (Math.random() * 2 - 1) * 620;
+    const dur = 1200 + Math.random() * 700;
+    const delay = Math.random() * 220;
+    maxLife = Math.max(maxLife, dur + delay);
+    p.style.cssText =
+      "position:absolute;left:0;top:0;pointer-events:none;user-select:none;" +
+      "font-size:" + size + "px;line-height:1;will-change:transform,opacity;" +
+      "filter:drop-shadow(0 1px 1px rgba(120,40,90,.35));" +
+      "--mjx:" + startX + "px;--mjdx:" + drift + "px;--mjrot:" + rot + "deg;" +
+      "--mjend:" + (H + 40) + "px;transform:translate(" + startX + "px,-8vh);opacity:0;" +
+      "animation:mjPetalFall " + dur + "ms cubic-bezier(.35,.1,.5,1) " + delay + "ms forwards;";
+    p.addEventListener("animationend", () => p.remove());
+    layer.appendChild(p);
+  }
+  // Safety sweep: tear the whole layer down once the last petal is gone.
+  setTimeout(() => {
+    if (petalLayer && petalLayer.childElementCount === 0) {
+      petalLayer.remove();
+      petalLayer = null;
+    }
+  }, maxLife + 400);
 }
 
 function disposeMesh(mesh) {

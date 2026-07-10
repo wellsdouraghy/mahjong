@@ -212,25 +212,339 @@ function drawCornerNumeral(ctx, n, color) {
   ctx.restore();
 }
 
+// ---------- Flower / season illustrations ----------
+// All 8 bonus tiles share one botanical-illustration style: soft canvas paths,
+// layered petals with radial gradients, thin ink outlines, drawn top-down so
+// they read while lying flat on the table. A small Chinese glyph sits as a
+// faint label at the bottom; the 1-4 index numeral stays in the upper-left.
+
+// A single teardrop petal whose base is at the origin and tip at (0,-len).
+function petalPath(ctx, len, wid) {
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.bezierCurveTo(wid, -len * 0.28, wid * 0.55, -len, 0, -len);
+  ctx.bezierCurveTo(-wid * 0.55, -len, -wid, -len * 0.28, 0, 0);
+  ctx.closePath();
+}
+
+// A radial ring of `count` petals around (cx,cy), each of radial length `len`.
+function petalRing(ctx, cx, cy, count, len, wid, inner, outer, phase, outline) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(phase || 0);
+  for (let i = 0; i < count; i++) {
+    ctx.save();
+    ctx.rotate((i / count) * Math.PI * 2);
+    const g = ctx.createLinearGradient(0, 0, 0, -len);
+    g.addColorStop(0, inner);
+    g.addColorStop(1, outer);
+    ctx.fillStyle = g;
+    petalPath(ctx, len, wid);
+    ctx.fill();
+    if (outline) {
+      ctx.strokeStyle = outline;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// A soft flower center (disc + a ring of tiny stamens).
+function flowerCenter(ctx, cx, cy, r, discColor, stamenColor) {
+  const g = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.15, cx, cy, r);
+  g.addColorStop(0, "rgba(255,255,255,0.85)");
+  g.addColorStop(0.5, discColor);
+  g.addColorStop(1, discColor);
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+  if (stamenColor) {
+    ctx.fillStyle = stamenColor;
+    const n = 8;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.arc(cx + Math.cos(a) * r * 0.55, cy + Math.sin(a) * r * 0.55, r * 0.16, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+// A single leaf (pointed almond) from (x0,y0) to (x1,y1) with a bulge `bow`.
+function drawLeaf(ctx, x0, y0, x1, y1, bow, c1, c2) {
+  const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+  const dx = x1 - x0, dy = y1 - y0;
+  const nx = -dy, ny = dx;               // perpendicular
+  const nl = Math.hypot(nx, ny) || 1;
+  const px = (nx / nl) * bow, py = (ny / nl) * bow;
+  const g = ctx.createLinearGradient(x0, y0, x1, y1);
+  g.addColorStop(0, c2); g.addColorStop(1, c1);
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(x0, y0);
+  ctx.quadraticCurveTo(mx + px, my + py, x1, y1);
+  ctx.quadraticCurveTo(mx - px, my - py, x0, y0);
+  ctx.closePath();
+  ctx.fill();
+  // midrib
+  ctx.strokeStyle = "rgba(0,0,0,0.12)";
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+}
+
+// A faint bottom label glyph so the tile still names its flower.
+function flowerLabel(ctx, glyph, color) {
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  ctx.font = "bold 22px 'Songti SC','SimSun',serif";
+  ctx.fillStyle = color;
+  ctx.fillText(glyph, TEX_W / 2, TEX_H - 16);
+  ctx.restore();
+}
+
+const CX = TEX_W / 2;
+
+// f1 梅 — plum blossoms on a dark branch.
+function drawPlum(ctx) {
+  ctx.save();
+  // branch
+  ctx.strokeStyle = "#5a3a26";
+  ctx.lineWidth = 6;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(28, 118); ctx.quadraticCurveTo(58, 96, 96, 44);
+  ctx.stroke();
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(60, 92); ctx.quadraticCurveTo(48, 74, 34, 66);
+  ctx.stroke();
+  ctx.restore();
+  const blossom = (cx, cy, r) => {
+    petalRing(ctx, cx, cy, 5, r, r * 0.72, "#ffffff", "#f6a8c4", 0, "rgba(190,80,120,0.25)");
+    flowerCenter(ctx, cx, cy, r * 0.28, "#e46a94", "#c62f66");
+  };
+  blossom(96, 44, 20);
+  blossom(50, 96, 16);
+  blossom(78, 74, 13);
+  // bud
+  ctx.fillStyle = "#f0a0bc";
+  ctx.beginPath(); ctx.arc(34, 66, 5, 0, Math.PI * 2); ctx.fill();
+  flowerLabel(ctx, "梅", "rgba(150,50,80,0.55)");
+}
+
+// f2 蘭 — orchid bloom with slender arching leaves.
+function drawOrchid(ctx) {
+  // leaves behind
+  drawLeaf(ctx, 46, 132, 20, 44, 16, "#2f7d4a", "#5aa86a");
+  drawLeaf(ctx, 74, 134, 104, 40, -16, "#2f7d4a", "#5aa86a");
+  drawLeaf(ctx, 60, 134, 58, 58, 6, "#337f4d", "#63b072");
+  const cx = CX, cy = 66;
+  // upper + side petals (magenta)
+  petalRing(ctx, cx, cy, 5, 30, 18, "#f4c9ec", "#b64bc0", -Math.PI, "rgba(120,30,120,0.25)");
+  // prominent lower lip (darker, wider)
+  ctx.save();
+  ctx.translate(cx, cy);
+  const g = ctx.createLinearGradient(0, 0, 0, 34);
+  g.addColorStop(0, "#8e2fa8");
+  g.addColorStop(1, "#ce6ad8");
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(0, 6);
+  ctx.bezierCurveTo(26, 14, 20, 40, 0, 36);
+  ctx.bezierCurveTo(-20, 40, -26, 14, 0, 6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+  // throat + spots
+  flowerCenter(ctx, cx, cy + 2, 8, "#ffd35a", "#d98f2a");
+  flowerLabel(ctx, "蘭", "rgba(120,40,130,0.55)");
+}
+
+// f3 菊 — layered chrysanthemum in gold/amber.
+function drawMum(ctx) {
+  const cx = CX, cy = 70;
+  petalRing(ctx, cx, cy, 16, 40, 9, "#f6c34a", "#d98a1f", 0.0, "rgba(150,90,10,0.15)");
+  petalRing(ctx, cx, cy, 14, 30, 8, "#ffdf7a", "#eba82f", Math.PI / 14, "rgba(150,90,10,0.12)");
+  petalRing(ctx, cx, cy, 12, 20, 7, "#ffefad", "#f4c24a", 0.0, null);
+  flowerCenter(ctx, cx, cy, 9, "#e79a1e", "#b56a10");
+  flowerLabel(ctx, "菊", "rgba(150,90,20,0.55)");
+}
+
+// f4 竹 — bamboo stalks with leaves.
+function drawBambooPlant(ctx) {
+  const stalk = (x, w, top, bottom, segs) => {
+    const g = ctx.createLinearGradient(x - w / 2, 0, x + w / 2, 0);
+    g.addColorStop(0, "#3f9c4f");
+    g.addColorStop(0.5, "#6fc96a");
+    g.addColorStop(1, "#2f7d3f");
+    ctx.fillStyle = g;
+    roundRect(ctx, x - w / 2, top, w, bottom - top, w * 0.4);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(20,80,30,0.55)";
+    ctx.lineWidth = 2;
+    for (let i = 1; i < segs; i++) {
+      const y = top + ((bottom - top) * i) / segs;
+      ctx.beginPath(); ctx.moveTo(x - w / 2, y); ctx.lineTo(x + w / 2, y); ctx.stroke();
+    }
+  };
+  stalk(52, 12, 30, 132, 4);
+  stalk(80, 10, 42, 132, 4);
+  // leaves near the top
+  drawLeaf(ctx, 52, 34, 30, 16, 8, "#2f7d3f", "#66bf5f");
+  drawLeaf(ctx, 52, 34, 78, 22, -8, "#2f7d3f", "#66bf5f");
+  drawLeaf(ctx, 80, 46, 104, 30, -8, "#2f7d3f", "#66bf5f");
+  drawLeaf(ctx, 80, 46, 96, 66, -7, "#2f7d3f", "#66bf5f");
+  flowerLabel(ctx, "竹", "rgba(30,100,40,0.55)");
+}
+
+// g1 春 — fresh green sprout with two leaves and a small blossom.
+function drawSpring(ctx) {
+  ctx.save();
+  ctx.strokeStyle = "#4a9a3f";
+  ctx.lineWidth = 5; ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(CX, 128); ctx.quadraticCurveTo(CX - 6, 90, CX, 58);
+  ctx.stroke();
+  ctx.restore();
+  drawLeaf(ctx, CX, 100, CX - 34, 78, 12, "#3f9c4f", "#7fd07a");
+  drawLeaf(ctx, CX, 88, CX + 34, 64, -12, "#3f9c4f", "#7fd07a");
+  // small fresh cherry-ish blossom on top
+  petalRing(ctx, CX, 50, 5, 16, 12, "#ffffff", "#ffc2d6", 0, "rgba(200,90,130,0.25)");
+  flowerCenter(ctx, CX, 50, 5, "#f4b23c", "#d98f2a");
+  flowerLabel(ctx, "春", "rgba(50,120,60,0.55)");
+}
+
+// g2 夏 — lotus bloom.
+function drawSummer(ctx) {
+  const cx = CX, cy = 72;
+  // pointed petals: two layered rings
+  const lotusPetal = (len, wid, i, count, phase, c1, c2) => {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(phase + (i / count) * Math.PI * 2);
+    const g = ctx.createLinearGradient(0, 0, 0, -len);
+    g.addColorStop(0, c2); g.addColorStop(1, c1);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.bezierCurveTo(wid, -len * 0.5, wid * 0.3, -len, 0, -len);
+    ctx.bezierCurveTo(-wid * 0.3, -len, -wid, -len * 0.5, 0, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "rgba(190,70,120,0.2)";
+    ctx.lineWidth = 1; ctx.stroke();
+    ctx.restore();
+  };
+  for (let i = 0; i < 8; i++) lotusPetal(40, 16, i, 8, Math.PI / 8, "#f7a8c6", "#fddbe8");
+  for (let i = 0; i < 7; i++) lotusPetal(30, 14, i, 7, 0, "#ef7aa8", "#fbb9d2");
+  // seed pod center
+  flowerCenter(ctx, cx, cy, 10, "#a9c34a", "#7f9e2f");
+  ctx.fillStyle = "#5f7a1f";
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.arc(cx + Math.cos(a) * 4, cy + Math.sin(a) * 4, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  flowerLabel(ctx, "夏", "rgba(60,110,160,0.55)");
+}
+
+// g3 秋 — warm-toned maple leaf.
+function drawAutumn(ctx) {
+  ctx.save();
+  ctx.translate(CX, 66);
+  const pts = [
+    [0, -42], [10, -18], [30, -22], [20, -2], [34, 14],
+    [14, 20], [0, 30], [-14, 20], [-34, 14], [-20, -2],
+    [-30, -22], [-10, -18],
+  ];
+  const g = ctx.createLinearGradient(0, -42, 0, 30);
+  g.addColorStop(0, "#f4a02a");
+  g.addColorStop(0.5, "#e2621f");
+  g.addColorStop(1, "#b8321c");
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+  ctx.fill();
+  // veins
+  ctx.strokeStyle = "rgba(120,40,10,0.4)";
+  ctx.lineWidth = 1.4;
+  const tips = [[0, -42], [30, -22], [34, 14], [-34, 14], [-30, -22]];
+  for (const t of tips) { ctx.beginPath(); ctx.moveTo(0, 6); ctx.lineTo(t[0], t[1]); ctx.stroke(); }
+  // stem
+  ctx.strokeStyle = "#8a4a22";
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(0, 30); ctx.lineTo(0, 52); ctx.stroke();
+  ctx.restore();
+  flowerLabel(ctx, "秋", "rgba(160,70,20,0.6)");
+}
+
+// g4 冬 — plum blossom on a bare branch with a snow accent, cool palette.
+function drawWinter(ctx) {
+  ctx.save();
+  // bare branch
+  ctx.strokeStyle = "#6b7480";
+  ctx.lineWidth = 5; ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(26, 122); ctx.quadraticCurveTo(56, 100, 92, 48);
+  ctx.stroke();
+  ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(58, 94); ctx.quadraticCurveTo(46, 78, 32, 74); ctx.stroke();
+  // snow caps on the branch
+  ctx.strokeStyle = "rgba(255,255,255,0.85)";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(30, 118); ctx.quadraticCurveTo(56, 96, 88, 50);
+  ctx.stroke();
+  ctx.restore();
+  const blossom = (cx, cy, r) => {
+    petalRing(ctx, cx, cy, 5, r, r * 0.72, "#ffffff", "#cfe0f0", 0, "rgba(90,120,160,0.35)");
+    flowerCenter(ctx, cx, cy, r * 0.28, "#e8f0fb", "#8fb0d8");
+  };
+  blossom(92, 48, 18);
+  blossom(50, 100, 14);
+  // a couple of snowflakes
+  ctx.strokeStyle = "rgba(150,180,215,0.9)";
+  ctx.lineWidth = 1.4;
+  const flake = (x, y, s) => {
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI;
+      ctx.beginPath();
+      ctx.moveTo(x - Math.cos(a) * s, y - Math.sin(a) * s);
+      ctx.lineTo(x + Math.cos(a) * s, y + Math.sin(a) * s);
+      ctx.stroke();
+    }
+  };
+  flake(34, 40, 5);
+  flake(104, 92, 4);
+  flowerLabel(ctx, "冬", "rgba(70,110,160,0.6)");
+}
+
+const FLOWER_DRAW = {
+  f1: drawPlum, f2: drawOrchid, f3: drawMum, f4: drawBambooPlant,
+  g1: drawSpring, g2: drawSummer, g3: drawAutumn, g4: drawWinter,
+};
+
 function drawFlower(ctx, kind) {
   const isSeason = kind[0] === "g";
   const numeral = parseInt(kind.slice(1), 10);
-  const glyph = FLOWER_GLYPHS[kind] || "花";
   const accent = isSeason ? "#1f6fb2" : "#b0392b";
-  // Decorative rounded inner frame in the accent color.
+  // Soft tinted inner glow so the illustration sits on a subtle vignette.
   ctx.save();
-  ctx.strokeStyle = isSeason ? "rgba(31,111,178,0.55)" : "rgba(176,57,43,0.5)";
-  ctx.lineWidth = 4;
-  roundRect(ctx, 16, 40, TEX_W - 32, TEX_H - 62, 12);
-  ctx.stroke();
+  const bg = ctx.createRadialGradient(CX, TEX_H * 0.45, 8, CX, TEX_H * 0.45, 90);
+  bg.addColorStop(0, isSeason ? "rgba(31,111,178,0.06)" : "rgba(176,57,43,0.05)");
+  bg.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, TEX_W, TEX_H);
   ctx.restore();
-  // Central glyph.
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillStyle = isSeason ? "#1f7a8f" : "#2f6b3e";
-  ctx.font = "bold 70px 'Songti SC','SimSun',serif";
-  ctx.fillText(glyph, TEX_W / 2, TEX_H * 0.56);
-  // Corner numeral 1-4, colored red (flower) / blue (season).
+  // The star: the flower illustration.
+  const fn = FLOWER_DRAW[kind];
+  if (fn) fn(ctx);
+  // Corner numeral 1-4, colored red (flower) / blue (season), matching suits.
   drawCornerNumeral(ctx, numeral, accent);
 }
 
