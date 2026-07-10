@@ -14,10 +14,39 @@ const HAND_STEP = 0.96;
 const DRAW_GAP = 0.7;
 const STAND_Y = TILE_H / 2;      // standing tile center height
 const FLAT_Y = 0.33;             // flat tile center height
-const DISCARD_Z0 = 3.4;          // outermost discard row (nearest the wall); grid grows inward
+const DISCARD_Z0 = 3.4;          // primary discard row (nearest the centre pad)
 const DISCARD_ROW = 1.26;        // row pitch ≥ flat-tile depth (TILE_H) so rows never overlap
 const DISCARD_STEP = 0.92;       // column pitch ≥ flat-tile width so columns never overlap
 const DISCARD_COLS = 6;          // tiles per discard row before wrapping to the next row
+const DISCARD_FAR_Z = 7.6;       // overflow row beyond the wall band (clears the tilted wall)
+const DISCARD_LAYER_Y = 0.66;    // vertical pitch when a pile stacks a second/third layer
+
+// Fixed per-seat discard slot plan. Discard index N of seat S ALWAYS maps to
+// the same slot: planar cell N % 16, stacked layer floor(N / 16). The 16 planar
+// cells are chosen so the four seats' piles (each rotated 90°) can NEVER touch
+// each other, the tilted draw wall (even at full 88-tile capacity), or the
+// flower rows — verified exhaustively against every rotation/wall/flower AABB:
+//   • row 0 (6 cols, z 3.4): the classic front row, unchanged.
+//   • row 1 (left 4 cols, z 2.14): inward row TRIMMED of its two right columns —
+//     full-width inner rows are what used to collide with the neighbouring
+//     seat's pile at the corners late game.
+//   • row 2 (left 4 cols, z 4.66): outward, tucked under the receding (left)
+//     half of this seat's own tilted wall; the right columns would hit the
+//     wall end that dips inward, so they are omitted.
+//   • row 3 (right 2 cols, z 7.6): past the wall band, on the side where the
+//     tilted wall has swung inward, clear of the flower rows (≤ 8.2 < 8.28).
+// Overflow beyond 16 stacks additional layers straight up on the same cells
+// (like real crowded mahjong piles) — identical footprint, so still collision
+// free, and every slot is deterministic regardless of wall depletion.
+const DISCARD_CELLS = (() => {
+  const colX = (c) => (c - (DISCARD_COLS - 1) / 2) * DISCARD_STEP;
+  const cells = [];
+  for (let c = 0; c < 6; c++) cells.push([colX(c), DISCARD_Z0]);
+  for (let c = 0; c < 4; c++) cells.push([colX(c), DISCARD_Z0 - DISCARD_ROW]);
+  for (let c = 0; c < 4; c++) cells.push([colX(c), DISCARD_Z0 + DISCARD_ROW]);
+  for (let c = 4; c < 6; c++) cells.push([colX(c), DISCARD_FAR_Z]);
+  return cells;
+})();
 const WALL_Z = 6.4;              // face-down draw-wall band (row centre distance)
 const WALL_STEP = 0.9;           // spacing between wall stacks
 const WALL_LIFT = 0.66;          // vertical gap between the two stacked tiles
@@ -879,24 +908,24 @@ export function update(state) {
       isYou ? state.drawnTile : null);
     if (!isYou) updateAvatar(dp, p, state);
 
-    // Discards: a wrapping grid (DISCARD_COLS per row) of face-up flat tiles in
-    // this seat's central band. Rows grow inward (toward center) from the row
-    // nearest the wall; row pitch ≥ tile depth so they never stack/overlap, and
-    // the block stays clear of the tilted wall and the opposite seat's pile.
+    // Discards: face-up flat tiles on this seat's fixed slot plan (see
+    // DISCARD_CELLS) — 16 collision-proof planar cells, then extra layers
+    // stack straight up, so piles never overlap another seat's pile, the
+    // tilted wall, or the flowers no matter how long the hand runs.
     const discards = p.discards || [];
     discards.forEach((t, i) => {
-      const col = i % DISCARD_COLS;
-      const row = Math.floor(i / DISCARD_COLS);
-      const lx = (col - (DISCARD_COLS - 1) / 2) * DISCARD_STEP;
-      const lz = DISCARD_Z0 - row * DISCARD_ROW;
+      const cell = DISCARD_CELLS[i % DISCARD_CELLS.length];
+      const layer = Math.floor(i / DISCARD_CELLS.length);
+      const lx = cell[0], lz = cell[1];
+      const ly = FLAT_Y + layer * DISCARD_LAYER_Y;
       const isLast = state.lastDiscard && state.lastDiscard.seat === p.seat &&
         state.lastDiscard.tile && state.lastDiscard.tile.id === t.id;
       const isClaimable = isLast && claimTileId != null && t.id === claimTileId;
       if (isClaimable) {
         claimActive = true;
-        claimPos.copy(rotateLocal(dp, lx, FLAT_Y, lz));
+        claimPos.copy(rotateLocal(dp, lx, ly, lz));
       }
-      placeTile(`id:${t.id}`, t.kind, false, dp, lx, FLAT_Y, lz, Q_FLAT, { highlight: isLast, claimable: isClaimable });
+      placeTile(`id:${t.id}`, t.kind, false, dp, lx, ly, lz, Q_FLAT, { highlight: isLast, claimable: isClaimable });
     });
 
     // Flowers — face-up flat row laid on the felt just outboard of this seat's
@@ -992,10 +1021,12 @@ function placeSeatRow(dp, isYou, seat, melds, handTiles, handCount, drawn) {
 //   • The dead wall is a single pile stacked `dead`-high (e.g. 4-high — clearly
 //     taller than the 2-high wall) sitting FLUSH against the back end of the
 //     live wall. Its height is how you read "this is the back of the deck".
-//   • Replacement draws (`backTaken`) peel tiles off the TOP of that pile; once
-//     a pair is consumed the pile walks one stack toward the FRONT (left along
-//     the row) and the vacated back stack empties — so the tall back-marker
-//     always stays flush against the remaining wall and never floats detached.
+//   • Each replacement draw (`backTaken`) peels ONE tile off the TOP of the
+//     pile, so its height counts down (4 → 3 → 2). Once it reaches 2 the next
+//     draw re-stacks it back to `dead` and the pile walks one stack toward the
+//     FRONT (left along the row), absorbing a live stack; the vacated back stack
+//     empties. So the height cycles dead,dead-1,dead-2 (4,3,2,4,3,2…) and the
+//     tall back-marker always stays flush against the remaining wall.
 //
 // The full physical wall (`wallCap`) is the running max of tiles ever present
 // (live + dead + already-taken replacements) — established at the deal, then it
@@ -1019,13 +1050,14 @@ function placeWall(count, backTaken, deadCount) {
   const stacksPerSide = Math.max(1, Math.ceil(cap / 8));
   const cols = stacksPerSide * 4;
 
-  // The dead-wall pile: `dead`-high, walking one column toward the front for
-  // every pair of replacement draws; a lone odd replacement peels one tile off
-  // the current pile's top before the walk completes.
-  const walk = Math.floor(taken / 2);        // columns the pile has advanced
-  const peel = taken - walk * 2;             // 0 or 1 tile peeled off the top now
+  // The dead-wall pile depletes ONE tile per replacement draw, cycling
+  // dead → dead-1 → dead-2 and refilling to `dead` on the draw after it hits the
+  // floor (for dead=4: heights 4,3,2,4,3,2…). Each refill the pile walks one
+  // stack toward the front, absorbing a live stack so it stays flush.
+  const cycle = Math.max(1, dead - 1);       // draws before a refill (3 for dead=4)
+  const walk = Math.floor(taken / cycle);    // columns advanced (one per refill)
   const markerCol = Math.max(0, cols - 1 - walk);
-  const markerH = Math.max(0, dead - peel);
+  const markerH = Math.max(1, dead - (taken % cycle));
 
   // Live wall: 2-high stacks packed against the FRONT side of the pile, so the
   // front-most stack goes partial/empty first as `count` falls.
