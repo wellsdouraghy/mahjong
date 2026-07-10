@@ -448,8 +448,10 @@ function handleMessage(client, msg) {
       if (seat === -1) { sendError(client.ws, 'you are not seated'); return; }
       const valid = ['pon', 'chi', 'kong', 'ron', 'tsumo', 'pass'];
       if (!valid.includes(msg.action)) { sendError(client.ws, 'invalid action'); return; }
+      const chiTiles = Array.isArray(msg.chiTiles)
+        ? msg.chiTiles.filter((n) => Number.isInteger(n)).slice(0, 2) : undefined;
       try {
-        room.match.game.handleClaim(seat, msg.action);
+        room.match.game.handleClaim(seat, msg.action, chiTiles);
       } catch (e) {
         sendError(client.ws, e.message);
       }

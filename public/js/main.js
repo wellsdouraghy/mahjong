@@ -41,7 +41,11 @@ export function joinByCode(code) { rawSend({ type: "joinByCode", code: String(co
 export function leaveRoom() { rawSend({ type: "leaveRoom" }); }
 export function startGame() { rawSend({ type: "startGame" }); }
 export function discard(tileId) { rawSend({ type: "discard", tileId }); }
-export function claimAction(action) { rawSend({ type: "claimAction", action }); }
+export function claimAction(action, chiTiles) {
+  const msg = { type: "claimAction", action };
+  if (Array.isArray(chiTiles) && chiTiles.length === 2) msg.chiTiles = chiTiles;
+  rawSend(msg);
+}
 // v5: declare a kong on your turn (concealed or added — server determines & validates).
 export function declareKong(kind) { rawSend({ type: "declareKong", kind }); }
 

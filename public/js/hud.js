@@ -149,11 +149,56 @@ function renderClaims(options, state) {
       `<span class="cb-label">${ACTION_LABELS[action] || action}</span>` +
       `<span class="cb-hint">${ACTION_HINT[action] || ""}</span>`;
     btn.addEventListener("click", () => {
+      if (action === "chi") {
+        const chiOpts = (state && state.chiOptions) || [];
+        if (chiOpts.length > 1) { showChiPicker(state, chiOpts); return; }
+        const t = chiOpts[0] && chiOpts[0].tiles;
+        main.claimAction("chi", t ? t.map((x) => x.id) : undefined);
+        renderClaims([]);
+        return;
+      }
       main.claimAction(action);
       renderClaims([]); // hide immediately after choosing
     });
     els.claimButtons.appendChild(btn);
   }
+}
+
+const CHI_SUIT_LABEL = { m: "Characters", p: "Dots", s: "Bamboo" };
+const chiRank = (kind) => parseInt(String(kind).slice(1), 10) || 0;
+
+// When a discard completes a run more than one way, let the player pick which run.
+function showChiPicker(state, chiOpts) {
+  const discard = state && state.lastDiscard && state.lastDiscard.tile;
+  els.claimHead.innerHTML = "";
+  const label = document.createElement("span");
+  label.className = "claim-prompt";
+  label.textContent = "Pick your run";
+  els.claimHead.appendChild(label);
+  if (discard) els.claimHead.appendChild(makeChip(discard.kind, false));
+
+  els.claimButtons.innerHTML = "";
+  for (const opt of chiOpts) {
+    const ranks = opt.tiles.map((t) => chiRank(t.kind));
+    if (discard) ranks.push(chiRank(discard.kind));
+    ranks.sort((a, b) => a - b);
+    const suit = discard ? (CHI_SUIT_LABEL[discard.kind[0]] || "") : "";
+    const btn = document.createElement("button");
+    btn.className = "claim-btn claim-chi";
+    btn.innerHTML =
+      `<span class="cb-label">${ranks.join("-")}</span>` +
+      `<span class="cb-hint">${suit}</span>`;
+    btn.addEventListener("click", () => {
+      main.claimAction("chi", opt.tiles.map((t) => t.id));
+      renderClaims([]);
+    });
+    els.claimButtons.appendChild(btn);
+  }
+  const back = document.createElement("button");
+  back.className = "claim-btn prominent-pass";
+  back.innerHTML = `<span class="cb-label">Cancel</span>`;
+  back.addEventListener("click", () => renderClaims((state && state.claimOptions) || [], state));
+  els.claimButtons.appendChild(back);
 }
 
 // v5: on YOUR turn, offer a Kong button per available kong kind. No timer.

@@ -383,6 +383,18 @@ class Game {
   }
 
   // --- claims ---------------------------------------------------------------
+  // The distinct runs `seat` could form with the current claim tile (for the UI to
+  // let the player pick when a discard completes a run more than one way). [] unless
+  // it's this seat's chi option in the open claim window.
+  chiOptionsFor(seat) {
+    if (this.turnPhase !== 'claims' || !this.claimWindow) return [];
+    const opts = this.claimWindow.options[seat];
+    if (!opts || !opts.includes('chi')) return [];
+    return this.chiShapes(seat, this.claimWindow.tile).map((sh) => ({
+      tiles: sh.tiles.map((t) => ({ id: t.id, kind: t.kind })),
+    }));
+  }
+
   chiShapes(seat, tile) {
     const p = parseKind(tile.kind);
     if (!p.suited) return [];
@@ -430,7 +442,7 @@ class Game {
     }
 
     this.turnPhase = 'claims';
-    this.claimWindow = { discardSeat, tile, options, responses: {} };
+    this.claimWindow = { discardSeat, tile, options, responses: {}, chiChoice: {} };
     this.emit();
 
     // No claim timer (v5): the window stays open until EVERY eligible player has
@@ -441,7 +453,7 @@ class Game {
     }
   }
 
-  handleClaim(seat, action) {
+  handleClaim(seat, action, chiTiles) {
     if (this.phase !== 'playing') throw new Error('game is not active');
 
     if (action === 'tsumo') {
@@ -457,6 +469,18 @@ class Game {
     if (!opts) throw new Error('not eligible to claim');
     if (!opts.includes(action)) throw new Error('invalid claim action');
     if (this.claimWindow.responses[seat]) return; // already responded
+
+    // Chi with a specific run choice: record which two hand tiles to use (when the
+    // discard completes a run more than one way). Ignored if it doesn't match a
+    // valid shape — doChi then falls back to the lowest run.
+    if (action === 'chi' && Array.isArray(chiTiles) && chiTiles.length === 2) {
+      const shapes = this.chiShapes(seat, this.claimWindow.tile);
+      const ok = shapes.some((sh) => {
+        const ids = sh.tiles.map((t) => t.id);
+        return ids.includes(chiTiles[0]) && ids.includes(chiTiles[1]);
+      });
+      if (ok) this.claimWindow.chiChoice[seat] = [chiTiles[0], chiTiles[1]];
+    }
 
     this.claimWindow.responses[seat] = action;
     const eligible = Object.keys(this.claimWindow.options).map(Number);
@@ -519,7 +543,7 @@ class Game {
     this.removeDiscardTile(cw.discardSeat, cw.tile);
     if (chosen.action === 'kong') this.doKong(chosen.seat, cw.tile);
     else if (chosen.action === 'pon') this.doPon(chosen.seat, cw.tile);
-    else this.doChi(chosen.seat, cw.tile);
+    else this.doChi(chosen.seat, cw.tile, cw.chiChoice && cw.chiChoice[chosen.seat]);
   }
 
   removeDiscardTile(seat, tile) {
@@ -538,9 +562,16 @@ class Game {
     this.claimerToDiscard(seat);
   }
 
-  doChi(seat, tile) {
+  doChi(seat, tile, chosenIds) {
     const shapes = this.chiShapes(seat, tile);
-    const shape = shapes[0]; // lowest run auto-pick
+    let shape = shapes[0]; // default: lowest run
+    if (chosenIds && chosenIds.length === 2) {
+      const match = shapes.find((sh) => {
+        const ids = sh.tiles.map((t) => t.id);
+        return ids.includes(chosenIds[0]) && ids.includes(chosenIds[1]);
+      });
+      if (match) shape = match;
+    }
     for (const m of shape.tiles) {
       const i = this.hands[seat].findIndex((t) => t.id === m.id);
       this.hands[seat].splice(i, 1);
@@ -801,6 +832,7 @@ class Game {
       drawnTile,
       lastDiscard,
       claimOptions: this.claimOptionsFor(seat),
+      chiOptions: this.chiOptionsFor(seat),
       selfKongOptions: this.selfKongOptionsFor(seat),
       winner: this.winner,
     };
