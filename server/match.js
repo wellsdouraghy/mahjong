@@ -109,16 +109,12 @@ class Match {
 
   scheduleAdvance() {
     if (this.destroyed) return;
+    // No auto-advance: after a hand settles the table stays on the finished
+    // snapshot until the host clicks "Start Next Game" (-> nextHand()).
     if (this.handNumber >= this.totalHands) {
       this.matchComplete = true;
       this.emit();
-      return;
     }
-    this.clearAdvanceTimer();
-    this.advanceTimer = setTimeout(() => {
-      this.advanceTimer = null;
-      this.nextHand();
-    }, ADVANCE_MS);
   }
 
   clearAdvanceTimer() {

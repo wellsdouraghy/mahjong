@@ -408,16 +408,26 @@ function renderSettlementPopup(gs) {
   foot.className = "settle-foot";
   const you = main.getYou && main.getYou();
   const total = m && m.totalHands != null ? m.totalHands : 16;
-  const next = document.createElement("span");
-  next.className = "settle-next";
-  next.textContent = handNo != null && handNo < total ? "Next hand dealing…" : "Match ending…";
-  foot.appendChild(next);
-  if (you && you.isHost && handNo != null && handNo < total) {
-    const skip = document.createElement("button");
-    skip.className = "btn btn-primary btn-xs";
-    skip.textContent = "Skip →";
-    skip.addEventListener("click", () => main.nextHand());
-    foot.appendChild(skip);
+  const moreHands = handNo != null && handNo < total;
+  if (moreHands) {
+    // No auto-advance — the host must start the next game.
+    if (you && you.isHost) {
+      const next = document.createElement("button");
+      next.className = "btn btn-primary btn-block";
+      next.textContent = "Start Next Game →";
+      next.addEventListener("click", () => main.nextHand());
+      foot.appendChild(next);
+    } else {
+      const wait = document.createElement("span");
+      wait.className = "settle-next";
+      wait.textContent = "Waiting for the host to start the next game…";
+      foot.appendChild(wait);
+    }
+  } else {
+    const next = document.createElement("span");
+    next.className = "settle-next";
+    next.textContent = "Match ending…";
+    foot.appendChild(next);
   }
   card.appendChild(foot);
 
