@@ -604,7 +604,9 @@ input[type="text"]::placeholder { color: var(--text-faint); }
 /* ---- Claim panel (big, animated, countdown) ---- */
 .claim-panel {
   position: absolute;
-  bottom: 26px;
+  /* Sit ABOVE your hand row (which hugs the bottom edge) so you can still see
+     your tiles while deciding whether to claim. */
+  bottom: 22vh;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -668,6 +670,15 @@ input[type="text"]::placeholder { color: var(--text-faint); }
 .claim-btn.prominent-pass {
   border: 2px solid rgba(255,255,255,0.5);
   background: linear-gradient(180deg, #5a6478, #3a4456);
+}
+/* Narrow / phone screens: keep the claim buttons in ONE compact row (label only)
+   so the panel stays short and clears your hand instead of stacking over it. */
+@media (max-width: 560px) {
+  .claim-panel { bottom: 29vh; padding: 12px 12px 10px; gap: 8px; max-width: 96vw; }
+  .claim-buttons { gap: 7px; flex-wrap: nowrap; width: 100%; }
+  .claim-btn { min-width: 0; flex: 1 1 0; padding: 11px 8px; border-radius: 12px; }
+  .claim-btn .cb-label { font-size: 15px; }
+  .claim-btn .cb-hint { display: none; }
 }
 .claim-note {
   font-size: 12px;

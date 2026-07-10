@@ -886,6 +886,7 @@ function updateAvatar(dp, player, state) {
 export function setVisible(v) {
   visible = v;
   if (renderer) renderer.domElement.style.display = v ? "block" : "none";
+  if (!v) { tipMesh = null; hideTooltip(); }
   if (v) onResize();
 }
 
@@ -1279,6 +1280,7 @@ function localXY(e) {
 function onPointerMove(e) {
   if (!visible) return;
   const { x, y, rect } = localXY(e);
+  lastClientX = e.clientX; lastClientY = e.clientY;   // for tile tooltips
   // Normalized device coords for raycast hover.
   pointer.x = (x / rect.width) * 2 - 1;
   pointer.y = -(y / rect.height) * 2 + 1;
@@ -1304,6 +1306,70 @@ function onPointerLeave() {
     hovered = null;
     if (renderer) renderer.domElement.style.cursor = "default";
   }
+  tipMesh = null;
+  hideTooltip();
+}
+
+// ---- Tile tooltips: rest the cursor on a face-up tile to see its plain name ----
+const SUIT_NAMES = { m: "Characters", p: "Dots", s: "Bamboo" };
+const WIND_NAMES = { E: "East Wind", S: "South Wind", W: "West Wind", N: "North Wind" };
+const DRAGON_NAMES = { R: "Red Dragon", G: "Green Dragon", W: "White Dragon" };
+const BONUS_NAMES = {
+  f1: "Plum (flower)", f2: "Orchid (flower)", f3: "Chrysanthemum (flower)", f4: "Bamboo (flower)",
+  g1: "Spring (season)", g2: "Summer (season)", g3: "Autumn (season)", g4: "Winter (season)",
+};
+function tileName(kind) {
+  if (!kind) return "";
+  const s = kind[0];
+  if (s === "m" || s === "p" || s === "s") return `${kind.slice(1)} of ${SUIT_NAMES[s]}`;
+  if (s === "w") return WIND_NAMES[kind[1]] || "Wind";
+  if (s === "d") return DRAGON_NAMES[kind[1]] || "Dragon";
+  if (s === "f" || s === "g") return BONUS_NAMES[kind] || "Flower";
+  return kind;
+}
+
+let tipMesh = null;      // tile the cursor is currently resting on
+let tipSince = 0;        // when the cursor first rested on tipMesh
+let tipEl = null;        // the tooltip DOM node
+let lastClientX = 0, lastClientY = 0;
+const TOOLTIP_DELAY = 550;  // ms of hover before the tooltip appears
+
+function updateTooltip() {
+  if (!visible || contextLost) { hideTooltip(); tipMesh = null; return; }
+  raycaster.setFromCamera(pointer, camera);
+  const kinded = [];
+  for (const m of meshes.values()) if (m.userData.kind) kinded.push(m);  // face-up only
+  const hits = kinded.length ? raycaster.intersectObjects(kinded, false) : [];
+  const hit = hits.length ? hits[0].object : null;
+  if (!hit) { tipMesh = null; hideTooltip(); return; }
+  if (hit !== tipMesh) { tipMesh = hit; tipSince = performance.now(); hideTooltip(); return; }
+  if (performance.now() - tipSince >= TOOLTIP_DELAY) {
+    showTooltip(tileName(hit.userData.kind), lastClientX, lastClientY);
+  }
+}
+
+function showTooltip(text, cx, cy) {
+  if (!text) { hideTooltip(); return; }
+  if (!tipEl) {
+    tipEl = document.createElement("div");
+    tipEl.style.cssText =
+      "position:fixed;z-index:50;pointer-events:none;padding:5px 10px;border-radius:8px;" +
+      "background:rgba(18,22,36,0.94);color:#eaf3ee;font:600 13px/1 system-ui,sans-serif;" +
+      "box-shadow:0 4px 14px rgba(0,0,0,0.4);white-space:nowrap;opacity:0;transition:opacity .12s;";
+    document.body.appendChild(tipEl);
+  }
+  tipEl.textContent = text;
+  let x = cx + 14, y = cy - 34;
+  const w = tipEl.offsetWidth || 120;
+  if (x + w > window.innerWidth - 8) x = cx - w - 14;
+  if (y < 8) y = cy + 22;
+  tipEl.style.left = x + "px";
+  tipEl.style.top = y + "px";
+  tipEl.style.opacity = "1";
+}
+
+function hideTooltip() {
+  if (tipEl) tipEl.style.opacity = "0";
 }
 
 function onPointerDown(e) {
@@ -1420,6 +1486,7 @@ function animate() {
   const t = (performance.now() - startT) / 1000;
   updateCameraFollow();
   updateHover();
+  updateTooltip();
 
   // Tiles: lerp toward targets (+ hover lift, + claimable lift/pulse).
   const claimPulse = 0.5 + 0.5 * Math.sin(t * 6);   // 0..1 shared claim pulse
