@@ -4,6 +4,15 @@ import * as main from "./main.js";
 let els = {};
 let lastLobby = null;   // last {rooms, you}
 let hasName = false;
+// An invite link (…?join=CODE) auto-joins that room right after you pick a name.
+let pendingJoinCode = (() => {
+  try {
+    const u = new URL(window.location.href);
+    const c = (u.searchParams.get("join") || "").trim().toUpperCase();
+    if (c) { history.replaceState(null, "", u.pathname); return c; }
+  } catch (e) {}
+  return null;
+})();
 
 export function init() {
   els = {
@@ -40,6 +49,11 @@ export function init() {
     if (!name) return;
     hasName = true;
     main.sendHello(name);
+    // Came in via an invite link → join that room automatically (no typing a code).
+    if (pendingJoinCode) {
+      main.joinByCode(pendingJoinCode);
+      pendingJoinCode = null;
+    }
     // Optimistically move to rooms screen; lobby message will populate it.
     showScreen("rooms");
   });
@@ -74,13 +88,14 @@ export function init() {
     els.copyCodeBtn.addEventListener("click", () => {
       const code = els.roomCodeValue ? els.roomCodeValue.textContent : "";
       if (!code || code === "—") return;
+      // A shareable invite link — friends who open it join the room automatically.
+      const link = `${location.origin}${location.pathname}?join=${encodeURIComponent(code)}`;
       const done = () => {
-        const prev = els.copyCodeBtn.textContent;
-        els.copyCodeBtn.textContent = "Copied!";
-        setTimeout(() => { els.copyCodeBtn.textContent = prev; }, 1400);
+        els.copyCodeBtn.textContent = "Link copied!";
+        setTimeout(() => { els.copyCodeBtn.textContent = "Copy link"; }, 1400);
       };
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(code).then(done).catch(done);
+        navigator.clipboard.writeText(link).then(done).catch(done);
       } else {
         done();
       }
