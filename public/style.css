@@ -488,18 +488,38 @@ input[type="text"]::placeholder { color: var(--text-faint); }
 /* ================================================================== */
 
 /* ---- Lobby seat rows (add / remove bots) ---- */
+/* Every seat row shares one calm base; occupancy is shown by the dot + tag,
+   not by loud borders or gradients, so the four rows read as one clean list. */
 .seat-row {
+  min-height: 56px;
   transition: border-color 0.2s, background 0.2s;
 }
-.seat-row.seat-empty { border-style: dashed; opacity: 0.85; }
-.seat-row.seat-bot { border-color: rgba(167, 139, 250, 0.4); }
-.room-players .seat-empty-label { color: var(--text-faint); font-style: italic; font-weight: 400; }
-.room-players .bot-glyph { filter: saturate(1.2); }
-.p-tag.bot-tag { color: var(--purple); }
+.seat-row.seat-empty {
+  background: rgba(12, 20, 16, 0.32);
+  border-style: dashed;
+  border-color: var(--border);
+}
+.room-players .seat-empty-label { color: var(--text-faint); font-weight: 400; }
+.room-players .bot-glyph { font-size: 13px; opacity: 0.9; margin-right: 2px; }
+.p-tag.bot-tag { color: var(--text-faint); font-weight: 600; }
 .seat-action { margin-left: auto; flex-shrink: 0; }
-.seat-row .seat-dot { background: linear-gradient(160deg, var(--blue-deep), var(--purple-deep)); }
-.seat-row.seat-bot .seat-dot { background: linear-gradient(160deg, var(--purple-deep), var(--pink)); }
-.seat-row.seat-empty .seat-dot { background: rgba(255,255,255,0.08); color: var(--text-faint); }
+/* Seat dot = the fixed wind position (E/S/W/N); occupant type sets its fill. */
+.seat-row .seat-dot {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-dim);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.seat-row.seat-human .seat-dot {
+  background: linear-gradient(160deg, var(--green-bright), var(--green));
+  color: #04160d;
+  border-color: transparent;
+}
+.seat-row.seat-bot .seat-dot {
+  background: rgba(167, 139, 250, 0.18);
+  color: #cdbcff;
+  border-color: rgba(167, 139, 250, 0.28);
+}
+.seat-row.seat-empty .seat-dot { color: var(--text-faint); }
 
 /* ---- Match bar (hand progress + running balances) ---- */
 .match-bar {
