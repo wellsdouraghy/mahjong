@@ -1,7 +1,7 @@
 // scene.js — three.js world: classroom, seat-rotated tile layout, avatars,
 // visible draw wall, flowers, look-around camera, raycast, lerp animation.
 import * as THREE from "three";
-import { makeTileMesh, TILE_H } from "./tiles.js";
+import { makeTileMesh, TILE_H, TILE_D } from "./tiles.js";
 import * as main from "./main.js";
 
 // ---- Layout constants (in a seat's LOCAL frame; +Z points outward toward that player) ----
@@ -128,6 +128,10 @@ const Q_STAND_YOU = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI
 const Q_STAND_OPP = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0));
 const Q_FLAT = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));      // face up
 const Q_FLAT_DOWN = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0));  // face down (wall)
+// Face up but yawed 90° — the 4th kong tile laid sideways/crosswise on top of the base 3.
+const Q_FLAT_SIDE = new THREE.Quaternion()
+  .setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2)
+  .multiply(Q_FLAT);
 // Wall tiles: face-down flat, yawed by the pinwheel angle so each side tilts.
 const Q_WALL = new THREE.Quaternion()
   .setFromAxisAngle(new THREE.Vector3(0, 1, 0), WALL_PINWHEEL)
@@ -207,7 +211,6 @@ export function init(mountEl) {
   el.addEventListener("pointerup", onPointerUp);
   el.addEventListener("pointerleave", onPointerLeave);
   el.addEventListener("dblclick", resetCamera);
-  el.addEventListener("wheel", onWheel, { passive: false });
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("resize", onResize);
 
@@ -1044,8 +1047,10 @@ export function update(state) {
 // row compresses instead of wrapping. A concealed kong shows its two ends face-up
 // and its two middle tiles face-down; melded kongs and pon/chi show all faces up.
 function placeSeatRow(dp, isYou, seat, melds, handTiles, handCount, drawn) {
+  // A kong occupies only 3 tile-widths in the row — its 4th tile sits on top.
+  const meldSpan = (m) => (m.type === "kong" && (m.tiles || []).length === 4) ? 3 : (m.tiles || []).length;
   let meldTileCount = 0;
-  for (const m of melds) meldTileCount += (m.tiles || []).length;
+  for (const m of melds) meldTileCount += meldSpan(m);
   const nMeld = melds.length;
   const nHand = isYou ? handTiles.length : handCount;
 
@@ -1067,6 +1072,17 @@ function placeSeatRow(dp, isYou, seat, melds, handTiles, handCount, drawn) {
   for (const meld of melds) {
     const tiles = meld.tiles || [];
     if (!tiles.length) continue;
+    if (meld.type === "kong" && tiles.length === 4) {
+      // Kong: 3 base tiles flat in the row + the 4th laid SIDEWAYS on top of them.
+      for (let ti = 0; ti < 3; ti++) {
+        placeTile(`id:${tiles[ti].id}`, tiles[ti].kind, false, dp,
+          x + ti * mStep + mStep / 2, FLAT_Y, zRow, Q_FLAT, { meld: true });
+      }
+      placeTile(`id:${tiles[3].id}`, tiles[3].kind, false, dp,
+        x + 1.5 * mStep, FLAT_Y + TILE_D, zRow, Q_FLAT_SIDE, { meld: true });
+      x += 3 * mStep + mGap;
+      continue;
+    }
     const concealed = meld.type === "kong" && meld.concealed;
     tiles.forEach((t, ti) => {
       const lx = x + ti * mStep + mStep / 2;
@@ -1390,13 +1406,6 @@ function onPointerUp(e) {
       interactable = false; // debounce until next state
     }
   }
-}
-
-function onWheel(e) {
-  if (!visible) return;
-  e.preventDefault();
-  camZoom = THREE.MathUtils.clamp(camZoom + (e.deltaY > 0 ? 0.08 : -0.08), 0.6, 1.5);
-  updateCameraPose();
 }
 
 function onKeyDown(e) {
