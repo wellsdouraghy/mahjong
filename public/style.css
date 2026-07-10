@@ -983,6 +983,7 @@ input[type="text"]::placeholder { color: var(--text-faint); }
   margin-bottom: 18px;
 }
 .entry-card {
+  min-width: 0; /* let the grid columns shrink to their track instead of overflowing */
   padding: 16px;
   border-radius: 14px;
   background: rgba(12, 20, 16, 0.6);
