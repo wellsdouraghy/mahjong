@@ -82,6 +82,7 @@ let raycaster, pointer;
 let tableGroup;
 let running = false;
 let visible = false;
+let contextLost = false;   // true while the GPU WebGL context is lost/recovering
 let startT = 0;
 
 let currentState = null;
@@ -176,13 +177,22 @@ export function init(mountEl) {
   camera = new THREE.PerspectiveCamera(45, aspect(), 0.1, 200);
   applyCameraFraming();
 
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer = new THREE.WebGLRenderer({
+    antialias: true,
+    alpha: true,
+    powerPreference: "high-performance",
+    failIfMajorPerformanceCaveat: false,
+  });
+  // Cap pixel ratio at 1.5 (not 2): rendering at full 2x on hi-DPI Windows laptops
+  // with weak/integrated GPUs is a common trigger for WebGL context loss (driver
+  // TDR reset). 1.5 still looks crisp and roughly halves the fill-rate load.
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   renderer.setSize(container.clientWidth || window.innerWidth, container.clientHeight || window.innerHeight);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   if ("outputColorSpace" in renderer) renderer.outputColorSpace = THREE.SRGBColorSpace;
   container.appendChild(renderer.domElement);
+  setupContextRecovery(container);
 
   buildEnvironment();
   buildClassroom();
@@ -313,7 +323,7 @@ function buildEnvironment() {
   const key = new THREE.DirectionalLight(0xffe9c4, 1.12);
   key.position.set(6, 22, 10);
   key.castShadow = true;
-  key.shadow.mapSize.set(2048, 2048);
+  key.shadow.mapSize.set(1024, 1024);
   key.shadow.camera.near = 1;
   key.shadow.camera.far = 70;
   key.shadow.camera.left = -20;
@@ -1344,9 +1354,67 @@ function updateHover() {
 }
 
 // ================= animation loop =================
+// WebGL context loss recovery. A weak/integrated GPU (common on Windows laptops)
+// can drop the context under load (a driver TDR reset). By default three.js does
+// NOT recover — the canvas just freezes. Here we pause rendering while lost, let
+// the browser restore the context (requires preventDefault), re-upload textures,
+// and resume. A fallback overlay offers a reload if the restore never fires.
+let ctxOverlay = null;
+function setupContextRecovery(container) {
+  const canvas = renderer.domElement;
+  canvas.addEventListener("webglcontextlost", (e) => {
+    e.preventDefault();            // REQUIRED, else 'webglcontextrestored' never fires
+    contextLost = true;
+    showContextOverlay(container);
+  }, false);
+  canvas.addEventListener("webglcontextrestored", () => {
+    // Re-upload every texture/material after the GPU reset, then resume.
+    try {
+      scene && scene.traverse((o) => {
+        const mats = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
+        for (const m of mats) {
+          if (!m) continue;
+          for (const k of ["map", "emissiveMap", "normalMap", "aoMap"]) {
+            if (m[k]) m[k].needsUpdate = true;
+          }
+          m.needsUpdate = true;
+        }
+      });
+    } catch (err) { /* best effort */ }
+    contextLost = false;
+    hideContextOverlay();
+  }, false);
+}
+
+function showContextOverlay(container) {
+  if (ctxOverlay) return;
+  const o = document.createElement("div");
+  o.style.cssText =
+    "position:absolute;inset:0;z-index:40;display:flex;flex-direction:column;" +
+    "align-items:center;justify-content:center;gap:14px;text-align:center;" +
+    "background:rgba(10,14,12,0.82);color:#eaf3ee;font:600 16px/1.4 system-ui,sans-serif;";
+  const msg = document.createElement("div");
+  msg.textContent = "Graphics interrupted — recovering…";
+  const btn = document.createElement("button");
+  btn.textContent = "Reload";
+  btn.style.cssText =
+    "font:inherit;padding:9px 18px;border-radius:10px;border:0;cursor:pointer;" +
+    "background:#43c98a;color:#04160d;";
+  btn.addEventListener("click", () => location.reload());
+  o.appendChild(msg); o.appendChild(btn);
+  (container || document.body).appendChild(o);
+  ctxOverlay = o;
+}
+
+function hideContextOverlay() {
+  if (ctxOverlay) { ctxOverlay.remove(); ctxOverlay = null; }
+}
+
 function animate() {
   if (!running) return;
   requestAnimationFrame(animate);
+  // Don't touch the GL context while it's lost — rendering on it throws/spams.
+  if (contextLost) return;
   if (!visible) { renderer.render(scene, camera); return; }
 
   const t = (performance.now() - startT) / 1000;
@@ -1429,7 +1497,7 @@ function onResize() {
   const h = container.clientHeight || window.innerHeight;
   camera.aspect = w / h;
   applyCameraFraming();
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   renderer.setSize(w, h);
 }
 
