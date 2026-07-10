@@ -984,65 +984,81 @@ function placeSeatRow(dp, isYou, seat, melds, handTiles, handCount, drawn) {
   }
 }
 
-// Render the wall as a pinwheel square of 2-high stacks, split into a LIVE wall
-// (drawn from the FRONT for normal turn draws) and a constant DEAD wall kept at
-// the back for flower/kong replacements. Behaviour:
-//   • Normal turn draws deplete the FRONT of the live wall (low slot indices).
-//   • Replacement draws (wallBackTaken) peel the dead-wall top and are
-//     backfilled from the live wall's tail, so the dead wall stays a constant
-//     small stack at the back that never disappears.
-//   • Within a 2-high stack the TOP tile is removed before the BOTTOM (the low
-//     slot index in each stack is the top), so the peel reads correctly.
+// Render the wall as a pinwheel square of 2-high stacks with a TALLER dead-wall
+// pile that marks the back of the deck. Behaviour:
+//   • The live wall is a row of 2-high stacks (columns). Normal turn draws
+//     deplete the FRONT (low column indices) — the wall shrinks from the front
+//     corner as `count` drops.
+//   • The dead wall is a single pile stacked `dead`-high (e.g. 4-high — clearly
+//     taller than the 2-high wall) sitting FLUSH against the back end of the
+//     live wall. Its height is how you read "this is the back of the deck".
+//   • Replacement draws (`backTaken`) peel tiles off the TOP of that pile; once
+//     a pair is consumed the pile walks one stack toward the FRONT (left along
+//     the row) and the vacated back stack empties — so the tall back-marker
+//     always stays flush against the remaining wall and never floats detached.
 //
 // The full physical wall (`wallCap`) is the running max of tiles ever present
-// plus replacements taken — established at the deal, then shrinks. Every tile
-// gets a slot and the four sides are laid out equally (padded with face-down
-// filler at the very front) so no side is ever short a tile.
+// (live + dead + already-taken replacements) — established at the deal, then it
+// only shrinks. Columns are dealt out equally across the four sides so no side
+// is ever left short; empty front/back columns are simply not rendered.
 let wallCap = 0;
 
 function placeWall(count, backTaken, deadCount) {
+  const live = Math.max(0, count | 0);
   const dead = Math.max(0, deadCount | 0);
-  // Total tiles that have ever been on the wall at once (present + already
-  // taken from the back as replacements). Running max fixes the full length.
-  const total = count + dead + backTaken;
+  const taken = Math.max(0, backTaken | 0);
+  // Running max of everything ever on the wall fixes the full physical length.
+  const total = live + dead + taken;
   if (total > wallCap) wallCap = total;
   const cap = wallCap;
   if (cap <= 0) return;
 
-  // Four equal sides of `stacksPerSide` complete 2-high stacks (no half stack
-  // left short). Slots are indexed 0..capPad-1 around the square; the constant
-  // dead wall occupies the last `dead` slots (back), the live wall is packed
-  // against it, and normal draws empty the FRONT (low indices), so no side is
-  // ever short a tile — the wall simply shrinks from the front corner.
+  // Four equal sides of `stacksPerSide` columns (2 tiles per column at capacity,
+  // 8 tiles per side). Columns are indexed 0..cols-1 around the square: low = the
+  // FRONT corner (empties on normal draws), high = the BACK (dead-wall end).
   const stacksPerSide = Math.max(1, Math.ceil(cap / 8));
-  const sideSlots = stacksPerSide * 2;
-  const capPad = sideSlots * 4;
+  const cols = stacksPerSide * 4;
 
-  const deadStartPad = capPad - dead;                 // first dead-wall slot (constant)
-  const liveEndPad = capPad - dead - backTaken;       // one past last standing live tile
-  const liveStartPad = Math.max(0, liveEndPad - count); // first live tile (front boundary)
+  // The dead-wall pile: `dead`-high, walking one column toward the front for
+  // every pair of replacement draws; a lone odd replacement peels one tile off
+  // the current pile's top before the walk completes.
+  const walk = Math.floor(taken / 2);        // columns the pile has advanced
+  const peel = taken - walk * 2;             // 0 or 1 tile peeled off the top now
+  const markerCol = Math.max(0, cols - 1 - walk);
+  const markerH = Math.max(0, dead - peel);
+
+  // Live wall: 2-high stacks packed against the FRONT side of the pile, so the
+  // front-most stack goes partial/empty first as `count` falls.
+  const liveCols = Math.ceil(live / 2);
+  const liveFront = Math.max(0, markerCol - liveCols);   // first standing live column
 
   const spanX = (stacksPerSide - 1) * WALL_STEP;
   const cosP = Math.cos(WALL_PINWHEEL), sinP = Math.sin(WALL_PINWHEEL);
 
-  for (let p = 0; p < capPad; p++) {
-    // Dead wall is always present; live tiles are packed against it and empty
-    // from the front (low p) as normal draws happen; the gap between liveEnd
-    // and deadStart is what replacement (back) draws have peeled.
-    const hasTile = (p >= deadStartPad) || (p >= liveStartPad && p < liveEndPad);
-    if (!hasTile) continue;
-
-    const side = Math.floor(p / sideSlots);  // 0..3 exactly
-    const within = p - side * sideSlots;
-    const stack = Math.floor(within / 2);
-    const isTop = (within % 2) === 0;        // low slot index = top → drawn first
+  // Place one vertical pile of `h` tiles at column `c` (keyed by column+height so
+  // it reconciles idempotently each state).
+  const placeStack = (c, h) => {
+    if (h <= 0 || c < 0 || c >= cols) return;
+    const side = Math.floor(c / stacksPerSide);          // 0..3 exactly
+    const stack = c - side * stacksPerSide;
     const baseX = -spanX / 2 + stack * WALL_STEP;
     // Pinwheel tilt: rotate each side's row about its centre.
     const lx = baseX * cosP;
     const lz = WALL_Z - baseX * sinP;
-    const ly = FLAT_Y + (isTop ? WALL_LIFT : 0);
-    placeTile(`wall:${p}`, null, true, side, lx, ly, lz, Q_WALL, { wall: true });
+    for (let i = 0; i < h; i++) {
+      const ly = FLAT_Y + i * WALL_LIFT;
+      placeTile(`wall:${c}:${i}`, null, true, side, lx, ly, lz, Q_WALL, { wall: true });
+    }
+  };
+
+  // Live 2-high stacks; the front-most one is 1-high when `live` is odd (its top
+  // has been drawn), matching front-first depletion.
+  for (let c = liveFront; c < markerCol; c++) {
+    const h = (c === liveFront && (live % 2) === 1) ? 1 : 2;
+    placeStack(c, h);
   }
+  // The tall dead-wall marker, flush against the back of the live wall.
+  placeStack(markerCol, markerH);
 }
 
 // Create-or-update a tile mesh at a local (seat) position; targets lerped in animate().
