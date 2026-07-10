@@ -77,6 +77,87 @@ const SEAT_SHIRTS = [0xff7a4d, 0x3fa9f5, 0x5fd08a, 0xffca3a];
 // Matching hair tints so the four avatars read as different, friendly people.
 const SEAT_HAIR = [0x3a2418, 0x2a2a3a, 0x4a2f1c, 0x38221a];
 
+// ================= SEASONS =================
+// The 16-hand match runs 4 rounds of 4 hands (round wind E→S→W→N). Each round
+// maps to a season by hand number: season = floor((handNumber - 1) / 4), 0..3.
+//   0 SPRING (East) · 1 SUMMER (South) · 2 FALL (West) · 3 WINTER (North)
+// The environment (lighting, sky, floor scatter, particles) and the seated
+// avatars' outfits re-theme whenever the season index changes.
+const SKIN = 0xe6b58c;
+function seasonOf(state) {
+  const hn = (state && state.match && state.match.handNumber != null) ? state.match.handNumber : 1;
+  return Math.max(0, Math.min(3, Math.floor((hn - 1) / 4)));
+}
+
+// Per-season environment palette. Colors chosen so gameplay (felt, tiles) stays
+// readable; the seasonal mood lives in the air, lights, sky and floor dressing.
+const SEASONS = [
+  { // 0 SPRING — fresh, bright, cherry-blossom, drifting petals
+    bg: 0x9ec7e8, fog: [0x9ec7e8, 60, 118],
+    ambient: [0xffe7f0, 1.0], hemi: [0xfff2f8, 0x86a05e, 0.82],
+    key: [0xfff2e4, 1.14], fill: [0xd8ecff, 0.5],
+    sky: 0xdff0ff, skyEmis: 0xd8f0ff, skyEI: 0.85,
+    sun: 0.0, particle: "petal",
+  },
+  { // 1 SUMMER — sunny, hot, strong golden light, bright sun through windows
+    bg: 0x86c8ff, fog: [0xbfe0ff, 66, 128],
+    ambient: [0xfff0cf, 1.12], hemi: [0xfff3d2, 0x7f8a4a, 0.9],
+    key: [0xffe39a, 1.7], fill: [0xfff0cf, 0.62],
+    sky: 0xfff2c4, skyEmis: 0xfff0b0, skyEI: 1.35,
+    sun: 1.7, particle: null,
+  },
+  { // 2 FALL — autumn amber, warm, falling leaves
+    bg: 0x6f5236, fog: [0x8a5f34, 52, 108],
+    ambient: [0xffdca0, 0.96], hemi: [0xffcf8a, 0x5a3a1e, 0.8],
+    key: [0xffb457, 1.28], fill: [0xffcaa0, 0.5],
+    sky: 0xffcf87, skyEmis: 0xffb35a, skyEI: 0.9,
+    sun: 0.0, particle: "leaf",
+  },
+  { // 3 WINTER — snow, cool blue-white, frosty, falling snow
+    bg: 0x9fb6cf, fog: [0xcfe0f0, 58, 120],
+    ambient: [0xdcecff, 0.98], hemi: [0xeef6ff, 0x6a7686, 0.86],
+    key: [0xdfeeff, 1.16], fill: [0xcfe0ff, 0.55],
+    sky: 0xe6f2ff, skyEmis: 0xdcecff, skyEI: 0.8,
+    sun: 0.0, particle: "snow",
+  },
+];
+
+// Avatar shirt palette per season (4 seats for per-seat variety).
+//   spring: light pastels · summer: bright short-sleeve · fall: warm sweaters
+//   (oranges/browns) · winter: darker warm coats.
+const SEASON_SHIRTS = [
+  [0xf6b8d1, 0xaad7f0, 0xbfe6ab, 0xffe08a],
+  [0xff6f5e, 0x2fc6d8, 0x8ee04a, 0xffcf3a],
+  [0xc4632a, 0x8a5a2b, 0xb5872e, 0x9a5a2f],
+  [0x3a4a6a, 0x6a3a3a, 0x2f5a4a, 0x6a4a2a],
+];
+// Winter scarf/beanie accent colors per seat.
+const WINTER_SCARF = [0xd94f4f, 0x4f7fd9, 0x4faf6a, 0xd9a23a];
+const WINTER_BEANIE = [0x9a2f2f, 0x2f4f9a, 0x2f7a4a, 0xb5772a];
+
+let currentSeason = 0;       // season applied to avatars this reconcile
+let appliedSeason = -1;      // season currently themed into the environment
+let seasonGroup = null;      // floor scatter / seasonal dressing (rebuilt on change)
+// Light + sky handles kept so applySeason() can retint them cheaply.
+let sAmbient = null, sHemi = null, sKey = null, sFill = null;
+let sunGlow = null, sunDisc = null;
+const windowSkyMats = [];    // window "sky" panel materials (retinted per season)
+
+// ---- Seasonal particle system (pooled THREE.Points: petals/leaves/snow) ----
+// One small pooled Points cloud drifts down through/around the scene. Its
+// texture, color, size and fall speed switch with the season; auto-managed, no
+// external assets. Inactive (hidden) in seasons with no particles (summer).
+let particles = null;        // THREE.Points
+let particlePos = null;      // Float32Array (x,y,z) * PARTICLE_COUNT
+let particlePhase = null;    // per-particle sway phase
+let particleSpeed = null;    // per-particle fall speed
+let particleActive = false;
+let particleFall = 3.0;      // base fall speed for the active season
+let particleSway = 1.2;      // horizontal sway amplitude
+const particleTex = {};      // cached canvas textures by kind
+const PARTICLE_COUNT = 170;
+const P_X = 38, P_ZMIN = -34, P_ZMAX = 42, P_YTOP = 18, P_YBOT = -9.0; // just above FLOOR_Y (-9.4)
+
 let renderer, scene, camera, container;
 let raycaster, pointer;
 let tableGroup;
@@ -84,6 +165,7 @@ let running = false;
 let visible = false;
 let contextLost = false;   // true while the GPU WebGL context is lost/recovering
 let startT = 0;
+let lastFrameMs = 0;   // for per-frame dt (particle integration)
 
 let currentState = null;
 let hovered = null;       // mesh currently hovered (your hand)
@@ -201,6 +283,7 @@ export function init(mountEl) {
   buildEnvironment();
   buildClassroom();
   buildAvatars();
+  buildParticles();
 
   raycaster = new THREE.Raycaster();
   pointer = new THREE.Vector2();
@@ -320,8 +403,10 @@ function buildEnvironment() {
   // warm hemisphere + strong warm key (shadows over the table only) + soft fill.
   const ambient = new THREE.AmbientLight(0xfff1dc, 0.92);
   scene.add(ambient);
+  sAmbient = ambient;
   const hemi = new THREE.HemisphereLight(0xfff6e2, 0x6a6250, 0.72);
   scene.add(hemi);
+  sHemi = hemi;
 
   const key = new THREE.DirectionalLight(0xffe9c4, 1.12);
   key.position.set(6, 22, 10);
@@ -336,10 +421,26 @@ function buildEnvironment() {
   key.shadow.bias = -0.0004;
   key.shadow.radius = 3;   // softer, friendlier shadow edges
   scene.add(key);
+  sKey = key;
 
   const fill = new THREE.DirectionalLight(0xcfe4ff, 0.45);
   fill.position.set(-12, 10, -8);
   scene.add(fill);
+  sFill = fill;
+
+  // Summer sun: a warm glow lamp + a bright emissive disc seen through the east
+  // windows. Off (intensity 0 / hidden) in every other season.
+  sunGlow = new THREE.PointLight(0xffe6a0, 0.0, 120, 1.4);
+  sunGlow.position.set(40, 18, 4);
+  scene.add(sunGlow);
+  sunDisc = new THREE.Mesh(
+    new THREE.CircleGeometry(4.2, 32),
+    new THREE.MeshBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0.95, depthWrite: false })
+  );
+  sunDisc.position.set(ROOM - 0.5, FLOOR_Y + 13.5, 2);
+  sunDisc.rotation.y = -Math.PI / 2;
+  sunDisc.visible = false;
+  scene.add(sunDisc);
 
   // Roaming spotlight that highlights the opponent whose turn it is.
   turnLight = new THREE.PointLight(0x9effc9, 0.0, 14, 2);
@@ -376,6 +477,235 @@ function roundedRectShape(w, h, r) {
   s.lineTo(x, y + r);
   s.quadraticCurveTo(x, y, x + r, y);
   return s;
+}
+
+// ================= seasonal theming =================
+// Small deterministic PRNG so a season's floor scatter is stable across rebuilds.
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function disposeGroup(grp) {
+  const geos = new Set(), mats = new Set();
+  grp.traverse((o) => {
+    if (o.geometry) geos.add(o.geometry);
+    if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => mats.add(m));
+  });
+  geos.forEach((g) => g.dispose());
+  mats.forEach((m) => { if (m.map) m.map.dispose(); m.dispose(); });
+}
+
+// Re-theme the whole environment for a season. Cheap: retints existing lights /
+// sky / fog and rebuilds only the floor-scatter group + reconfigures the pooled
+// particle cloud. Called only when the season index actually changes.
+function applySeason(season) {
+  const S = SEASONS[season] || SEASONS[0];
+  if (scene.background) scene.background.setHex(S.bg);
+  if (scene.fog) { scene.fog.color.setHex(S.fog[0]); scene.fog.near = S.fog[1]; scene.fog.far = S.fog[2]; }
+  if (sAmbient) { sAmbient.color.setHex(S.ambient[0]); sAmbient.intensity = S.ambient[1]; }
+  if (sHemi) { sHemi.color.setHex(S.hemi[0]); sHemi.groundColor.setHex(S.hemi[1]); sHemi.intensity = S.hemi[2]; }
+  if (sKey) { sKey.color.setHex(S.key[0]); sKey.intensity = S.key[1]; }
+  if (sFill) { sFill.color.setHex(S.fill[0]); sFill.intensity = S.fill[1]; }
+  for (const m of windowSkyMats) { m.color.setHex(S.sky); m.emissive.setHex(S.skyEmis); m.emissiveIntensity = S.skyEI; }
+  if (sunGlow) sunGlow.intensity = S.sun;
+  if (sunDisc) sunDisc.visible = S.sun > 0;
+  buildSeasonScatter(season);
+  configParticles(S.particle);
+}
+
+// Floor dressing around the room, well below the table top (FLOOR_Y ≈ -9.4) so
+// it never touches the play area. Rebuilt whole on each season change.
+function buildSeasonScatter(season) {
+  if (seasonGroup) { scene.remove(seasonGroup); disposeGroup(seasonGroup); seasonGroup = null; }
+  const g = new THREE.Group();
+  const rnd = mulberry32(9137 + season * 101);
+  const place = (rMin, rMax) => {
+    const a = rnd() * Math.PI * 2;
+    const r = rMin + rnd() * (rMax - rMin);
+    return [Math.cos(a) * r, Math.sin(a) * r];
+  };
+  const FY = FLOOR_Y;
+
+  if (season === 0) {
+    // SPRING — green grass tufts + colorful little flowers.
+    const grassMat = new THREE.MeshStandardMaterial({ color: 0x6faf3f, roughness: 0.9 });
+    const grassGeo = new THREE.ConeGeometry(0.42, 1.8, 5);
+    for (let i = 0; i < 46; i++) {
+      const [x, z] = place(16, 45);
+      const m = new THREE.Mesh(grassGeo, grassMat);
+      m.position.set(x, FY + 0.9, z); m.rotation.y = rnd() * Math.PI;
+      m.scale.set(1, 0.7 + rnd() * 0.7, 1);
+      g.add(m);
+    }
+    const bloomCols = [0xff6f8a, 0xffd23a, 0xff9ecb, 0x9b7bff, 0xffffff, 0xff8a5c];
+    const bloomMats = bloomCols.map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.7, emissive: c, emissiveIntensity: 0.12 }));
+    const stemMat = new THREE.MeshStandardMaterial({ color: 0x4f8f3a, roughness: 0.9 });
+    const stemGeo = new THREE.CylinderGeometry(0.06, 0.06, 1.1, 5);
+    const bloomGeo = new THREE.SphereGeometry(0.34, 10, 8);
+    for (let i = 0; i < 38; i++) {
+      const [x, z] = place(16, 45);
+      const stem = new THREE.Mesh(stemGeo, stemMat);
+      stem.position.set(x, FY + 0.55, z); g.add(stem);
+      const bloom = new THREE.Mesh(bloomGeo, bloomMats[(rnd() * bloomMats.length) | 0]);
+      bloom.position.set(x, FY + 1.15, z); bloom.scale.set(1, 0.7, 1);
+      g.add(bloom);
+    }
+  } else if (season === 1) {
+    // SUMMER — lush deep-green tufts + a few bright sunflowers.
+    const lushMat = new THREE.MeshStandardMaterial({ color: 0x2f8f34, roughness: 0.9 });
+    const lushGeo = new THREE.ConeGeometry(0.6, 2.5, 6);
+    for (let i = 0; i < 34; i++) {
+      const [x, z] = place(16, 45);
+      const m = new THREE.Mesh(lushGeo, lushMat);
+      m.position.set(x, FY + 1.25, z); m.rotation.y = rnd() * Math.PI;
+      m.scale.set(1, 0.8 + rnd() * 0.6, 1);
+      g.add(m);
+    }
+    const stemMat = new THREE.MeshStandardMaterial({ color: 0x3f7f2a, roughness: 0.9 });
+    const stemGeo = new THREE.CylinderGeometry(0.08, 0.08, 2.0, 6);
+    const sunGeo = new THREE.SphereGeometry(0.5, 12, 10);
+    const sunMat = new THREE.MeshStandardMaterial({ color: 0xffcf2a, roughness: 0.6, emissive: 0xffb020, emissiveIntensity: 0.2 });
+    for (let i = 0; i < 16; i++) {
+      const [x, z] = place(18, 45);
+      const stem = new THREE.Mesh(stemGeo, stemMat);
+      stem.position.set(x, FY + 1.0, z); g.add(stem);
+      const bloom = new THREE.Mesh(sunGeo, sunMat);
+      bloom.position.set(x, FY + 2.1, z); bloom.scale.set(1, 0.85, 1);
+      g.add(bloom);
+    }
+  } else if (season === 2) {
+    // FALL — fallen leaves scattered flat on the floor (orange/red/brown).
+    const leafCols = [0xc4632a, 0xd98a2b, 0xb03a26, 0x8a5a2b, 0xd9a23a, 0x9a4a1e];
+    const leafMats = leafCols.map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9, side: THREE.DoubleSide }));
+    const leafGeo = new THREE.CircleGeometry(0.46, 6);
+    for (let i = 0; i < 90; i++) {
+      const [x, z] = place(15, 45);
+      const m = new THREE.Mesh(leafGeo, leafMats[(rnd() * leafMats.length) | 0]);
+      m.rotation.x = -Math.PI / 2; m.rotation.z = rnd() * Math.PI;
+      m.position.set(x, FY + 0.03 + rnd() * 0.02, z);
+      m.scale.set(1, 0.62, 1);
+      g.add(m);
+    }
+  } else {
+    // WINTER — snow patches on the floor + snow caps on the window sills.
+    const snowMat = new THREE.MeshStandardMaterial({ color: 0xf4fbff, roughness: 0.95 });
+    const patchGeo = new THREE.CircleGeometry(1.0, 12);
+    for (let i = 0; i < 78; i++) {
+      const [x, z] = place(14, 46);
+      const m = new THREE.Mesh(patchGeo, snowMat);
+      m.rotation.x = -Math.PI / 2;
+      m.position.set(x, FY + 0.03 + rnd() * 0.02, z);
+      const s = 0.6 + rnd() * 1.4; m.scale.set(s, s, s);
+      g.add(m);
+    }
+    // Snow ledges on the east-wall window sills.
+    const sillGeo = new THREE.BoxGeometry(7.4, 0.3, 0.7);
+    for (const wz of [-12, 2, 16]) {
+      const sill = new THREE.Mesh(sillGeo, snowMat);
+      sill.position.set(ROOM - 1.0, FLOOR_Y + 10.5 - 4.7, wz);
+      g.add(sill);
+    }
+  }
+
+  scene.add(g);
+  seasonGroup = g;
+}
+
+// ---- pooled particle cloud (petals / leaves / snow) ----
+function getParticleTexture(kind) {
+  if (particleTex[kind]) return particleTex[kind];
+  const c = document.createElement("canvas");
+  c.width = 64; c.height = 64;
+  const ctx = c.getContext("2d");
+  ctx.clearRect(0, 0, 64, 64);
+  if (kind === "snow") {
+    const grd = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
+    grd.addColorStop(0, "rgba(255,255,255,1)");
+    grd.addColorStop(0.5, "rgba(240,250,255,0.8)");
+    grd.addColorStop(1, "rgba(220,240,255,0)");
+    ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(32, 32, 30, 0, Math.PI * 2); ctx.fill();
+  } else if (kind === "leaf") {
+    // Simple maple-ish leaf: teardrop body + midrib.
+    ctx.fillStyle = "#cf6a24";
+    ctx.beginPath();
+    ctx.moveTo(32, 8);
+    ctx.bezierCurveTo(54, 20, 54, 46, 32, 58);
+    ctx.bezierCurveTo(10, 46, 10, 20, 32, 8);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(90,40,10,0.6)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(32, 12); ctx.lineTo(32, 56); ctx.stroke();
+  } else {
+    // petal: soft pink oval
+    ctx.fillStyle = "#ff9ec4";
+    ctx.beginPath();
+    ctx.ellipse(32, 32, 14, 24, Math.PI / 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.35)";
+    ctx.beginPath(); ctx.ellipse(28, 26, 5, 10, Math.PI / 5, 0, Math.PI * 2); ctx.fill();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  particleTex[kind] = tex;
+  return tex;
+}
+
+function resetParticle(i, initial) {
+  particlePos[i * 3] = (Math.random() * 2 - 1) * P_X;
+  particlePos[i * 3 + 1] = initial
+    ? (P_YBOT + Math.random() * (P_YTOP - P_YBOT))
+    : (P_YTOP - Math.random() * 3);
+  particlePos[i * 3 + 2] = P_ZMIN + Math.random() * (P_ZMAX - P_ZMIN);
+}
+
+function buildParticles() {
+  particlePos = new Float32Array(PARTICLE_COUNT * 3);
+  particlePhase = new Float32Array(PARTICLE_COUNT);
+  particleSpeed = new Float32Array(PARTICLE_COUNT);
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    resetParticle(i, true);
+    particlePhase[i] = Math.random() * Math.PI * 2;
+    particleSpeed[i] = 0.7 + Math.random() * 0.6;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(particlePos, 3));
+  const mat = new THREE.PointsMaterial({
+    size: 1.6, transparent: true, opacity: 0.9, depthWrite: false, sizeAttenuation: true,
+  });
+  particles = new THREE.Points(geo, mat);
+  particles.frustumCulled = false;
+  particles.renderOrder = 6;
+  particles.visible = false;
+  scene.add(particles);
+}
+
+function configParticles(kind) {
+  if (!particles) return;
+  if (!kind) { particleActive = false; particles.visible = false; return; }
+  particleActive = true;
+  particles.visible = true;
+  particles.material.map = getParticleTexture(kind);
+  particles.material.color.setHex(0xffffff);
+  particles.material.needsUpdate = true;
+  if (kind === "snow") { particles.material.size = 1.5; particles.material.opacity = 0.95; particleFall = 2.2; particleSway = 1.0; }
+  else if (kind === "leaf") { particles.material.size = 2.3; particles.material.opacity = 0.95; particleFall = 3.0; particleSway = 2.4; }
+  else { particles.material.size = 1.9; particles.material.opacity = 0.9; particleFall = 2.0; particleSway = 1.9; }
+}
+
+function updateParticles(t, dt) {
+  if (!particleActive || !particles) return;
+  const pos = particlePos;
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    const yi = i * 3 + 1;
+    pos[yi] -= particleFall * particleSpeed[i] * dt;
+    pos[i * 3] += Math.sin(t * 1.4 + particlePhase[i]) * particleSway * dt;
+    if (pos[yi] < P_YBOT) resetParticle(i, false);
+  }
+  particles.geometry.attributes.position.needsUpdate = true;
 }
 
 // ================= environment: classroom =================
@@ -568,6 +898,7 @@ function addWindow(room, pos, rotY) {
   const sky = new THREE.Mesh(new THREE.PlaneGeometry(7, 9),
     new THREE.MeshStandardMaterial({ color: 0xcfe8ff, emissive: 0xbfe0ff, emissiveIntensity: 0.75 }));
   g.add(sky);
+  windowSkyMats.push(sky.material);
   // Frame + muntins.
   const fMat = new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.7 });
   const top = new THREE.Mesh(new THREE.BoxGeometry(7.6, 0.5, 0.3), fMat); top.position.y = 4.6; g.add(top);
@@ -829,10 +1160,12 @@ function makeAvatarRig() {
   head.add(smile);
 
   // Arms reaching forward and down toward the table edge; hands resting near
-  // the felt surface (y ≈ 0.2) just inside the near edge.
+  // the felt surface (y ≈ 0.2) just inside the near edge. Sleeves use their own
+  // material so summer can bare them (short sleeves) without touching the torso.
+  const sleeveMat = new THREE.MeshStandardMaterial({ color: 0x4a7fd0, roughness: 0.75 });
   const armGeo = new THREE.CapsuleGeometry(0.27, 1.7, 4, 8);
   for (const sx of [-1, 1]) {
-    const arm = new THREE.Mesh(armGeo, shirtMat);
+    const arm = new THREE.Mesh(armGeo, sleeveMat);
     arm.position.set(sx * 0.95, shoulderY - 0.35, shoulderZ - 1.0);
     arm.rotation.x = Math.PI / 2.15;   // point forward-down toward the table
     arm.castShadow = true;
@@ -841,6 +1174,32 @@ function makeAvatarRig() {
     hand.position.set(sx * 0.85, 0.2, shoulderZ - 1.95);
     group.add(hand);
   }
+
+  // Winter accessories (hidden unless the season is winter): a scarf ring around
+  // the neck and a beanie over the hair. Colors set per seat in updateAvatar.
+  const scarfMat = new THREE.MeshStandardMaterial({ color: 0xd94f4f, roughness: 0.85 });
+  const scarf = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.17, 10, 20), scarfMat);
+  scarf.rotation.x = Math.PI / 2;
+  scarf.position.set(0, shoulderY + 0.18, shoulderZ - 0.05);
+  scarf.visible = false;
+  group.add(scarf);
+  // A short scarf tail hanging down the front.
+  const scarfTail = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.9, 0.18), scarfMat);
+  scarfTail.position.set(0.28, shoulderY - 0.35, shoulderZ - 0.55);
+  scarfTail.visible = false;
+  group.add(scarfTail);
+
+  const beanieMat = new THREE.MeshStandardMaterial({ color: 0x9a2f2f, roughness: 0.85 });
+  const beanie = new THREE.Mesh(
+    new THREE.SphereGeometry(0.86, 18, 14, 0, Math.PI * 2, 0, Math.PI * 0.55), beanieMat);
+  beanie.position.set(0, shoulderY + 1.12, shoulderZ - 0.15);
+  beanie.visible = false;
+  group.add(beanie);
+  const beanieBrim = new THREE.Mesh(new THREE.TorusGeometry(0.78, 0.13, 10, 22), beanieMat);
+  beanieBrim.rotation.x = Math.PI / 2;
+  beanieBrim.position.set(0, shoulderY + 1.02, shoulderZ - 0.15);
+  beanieBrim.visible = false;
+  group.add(beanieBrim);
 
   // Name sprite floats above the head.
   const spriteHolder = new THREE.Object3D();
@@ -854,7 +1213,11 @@ function makeAvatarRig() {
   glow.position.set(0, SEAT_PAN_Y - 0.1, -0.2);
   group.add(glow);
 
-  return { group, shirtMat, hairMat, spriteHolder, glow, sprite: null, spriteKey: "", isTurn: false, seat: -1 };
+  return {
+    group, shirtMat, sleeveMat, hairMat, spriteHolder, glow,
+    scarf, scarfTail, scarfMat, beanie, beanieBrim, beanieMat,
+    sprite: null, spriteKey: "", isTurn: false, seat: -1, outfitKey: "",
+  };
 }
 
 function updateAvatar(dp, player, state) {
@@ -864,11 +1227,25 @@ function updateAvatar(dp, player, state) {
   rig.seat = player.seat;
   rig.isTurn = state.turn === player.seat && state.phase === "playing";
 
-  // Shirt + hair color per seat (bright, varied, friendly).
-  const col = SEAT_SHIRTS[player.seat % 4];
-  if (rig.shirtMat.color.getHex() !== col) rig.shirtMat.color.setHex(col);
-  const hc = SEAT_HAIR[player.seat % 4];
-  if (rig.hairMat && rig.hairMat.color.getHex() !== hc) rig.hairMat.color.setHex(hc);
+  // Seasonal outfit per seat: shirt/sleeve recolor + winter scarf/beanie, with
+  // per-seat variety. Only rebuilt when the (season, seat) pair changes.
+  const seat = player.seat % 4;
+  const outfitKey = `${currentSeason}:${seat}`;
+  if (rig.outfitKey !== outfitKey) {
+    const shirt = (SEASON_SHIRTS[currentSeason] || SEASON_SHIRTS[0])[seat];
+    rig.shirtMat.color.setHex(shirt);
+    // Summer bares the forearms (short sleeves); other seasons match the shirt.
+    rig.sleeveMat.color.setHex(currentSeason === 1 ? SKIN : shirt);
+    if (rig.hairMat) rig.hairMat.color.setHex(SEAT_HAIR[seat]);
+    const isWinter = currentSeason === 3;
+    rig.scarfMat.color.setHex(WINTER_SCARF[seat]);
+    rig.beanieMat.color.setHex(WINTER_BEANIE[seat]);
+    rig.scarf.visible = isWinter;
+    rig.scarfTail.visible = isWinter;
+    rig.beanie.visible = isWinter;
+    rig.beanieBrim.visible = isWinter;
+    rig.outfitKey = outfitKey;
+  }
 
   // Name sprite (rebuild only when text/turn/connection changes).
   const label = (player.name || "—") + (player.isDealer ? " (E)" : "");
@@ -935,6 +1312,14 @@ export function update(state) {
     dealMaxDelayMs = dealStartMs;
     dealFlowerMeshes.length = 0;
     prevYourFlowers = 0; // the deal's flowers count as freshly "gained" (petal burst)
+  }
+
+  // ---- Season theming (round wind → season by hand number) ----
+  // 0 spring · 1 summer · 2 fall · 3 winter. Defaults to spring with no match.
+  currentSeason = seasonOf(state);
+  if (currentSeason !== appliedSeason) {
+    applySeason(currentSeason);
+    appliedSeason = currentSeason;
   }
 
   const you = state.yourSeat;
@@ -1492,10 +1877,14 @@ function animate() {
   if (contextLost) return;
   if (!visible) { renderer.render(scene, camera); return; }
 
-  const t = (performance.now() - startT) / 1000;
+  const nowFrame = performance.now();
+  const t = (nowFrame - startT) / 1000;
+  const dt = lastFrameMs ? Math.min(0.05, (nowFrame - lastFrameMs) / 1000) : 0.016;
+  lastFrameMs = nowFrame;
   updateCameraFollow();
   updateHover();
   updateTooltip();
+  updateParticles(t, dt);
 
   // Tiles: lerp toward targets (+ hover lift, + claimable lift/pulse).
   const claimPulse = 0.5 + 0.5 * Math.sin(t * 6);   // 0..1 shared claim pulse
@@ -1590,6 +1979,7 @@ export function clearScene() {
       rig.group.visible = false;
       rig.isTurn = false;
       rig.spriteKey = "";
+      rig.outfitKey = "";   // force the seasonal outfit to re-apply next game
       if (rig.sprite) {
         rig.spriteHolder.remove(rig.sprite);
         if (rig.sprite.material.map) rig.sprite.material.map.dispose();
@@ -1606,6 +1996,8 @@ export function clearScene() {
   wallCap = 0;
   hovered = null;
   currentState = null;
+  appliedSeason = -1;   // re-apply the season environment on the next game
+  currentSeason = 0;
   // Reset deal + petal tracking so the next game re-deals from scratch.
   wasPlaying = false;
   prevHandNumber = null;

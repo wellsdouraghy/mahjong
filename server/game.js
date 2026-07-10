@@ -727,6 +727,7 @@ class Game {
       discarder: winType === 'ron' && typeof fromSeat === 'number' ? fromSeat : null,
       hand: sortTiles(hand).map((t) => ({ id: t.id, kind: t.kind })),
       melds: this.melds[seat].map((m) => ({ type: m.type, tiles: m.tiles.map((t) => ({ id: t.id, kind: t.kind })) })),
+      winningTile: winTile ? { id: winTile.id, kind: winTile.kind } : null,
       score,
     };
     this.drawnTile = null;

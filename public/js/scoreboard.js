@@ -44,18 +44,21 @@ export function update(gs) {
       hidePopup();
       renderMatchOver(gs);
     } else if (gs.match) {
+      stopFireworks();
       els.matchOver.classList.add("hidden");
       renderSettlementPopup(gs);
     }
   } else {
     // A new hand is dealing / in progress — clear the between-hand UI.
     hidePopup();
+    stopFireworks();
     els.matchOver.classList.add("hidden");
   }
 }
 
 export function reset() {
   panelOpen = false;
+  stopFireworks();
   document.body.classList.remove("scoreboard-open");
   if (els.panel) els.panel.classList.add("hidden");
   if (els.popup) els.popup.classList.add("hidden");
@@ -399,6 +402,28 @@ function renderSettlementPopup(gs) {
       `<div class="settle-type">${w.winType === "tsumo" ? "Self-draw (tsumo)" : "Off a discard (ron)"}</div>`;
     card.appendChild(body);
 
+    // The full winning hand (14 tiles incl. the winning tile, which is ringed) so
+    // you can see exactly what scored and verify the points.
+    const hand = Array.isArray(w.hand) ? w.hand : [];
+    const winId = w.winningTile ? w.winningTile.id : null;
+    if (hand.length || (w.melds && w.melds.length)) {
+      const hlabel = document.createElement("div");
+      hlabel.className = "settle-hand-label";
+      hlabel.textContent = "Winning hand";
+      card.appendChild(hlabel);
+      const hwrap = document.createElement("div");
+      hwrap.className = "settle-hand";
+      for (const t of hand) {
+        const chip = makeChip(t.kind, false);
+        if (winId != null && t.id === winId) chip.classList.add("winning-tile");
+        hwrap.appendChild(chip);
+      }
+      for (const meld of (w.melds || [])) {
+        for (const t of (meld.tiles || [])) hwrap.appendChild(makeChip(t.kind, true));
+      }
+      card.appendChild(hwrap);
+    }
+
     // Itemized fan breakdown — explains how the point total was reached.
     const fans = (w.score && Array.isArray(w.score.fans)) ? w.score.fans : [];
     if (fans.length) {
@@ -505,6 +530,42 @@ function renderMatchOver(gs) {
   });
   card.appendChild(board);
 
+  // Settle up — minimized transfers so the group knows how to square up.
+  const settle = document.createElement("div");
+  settle.className = "mo-settle";
+  const settleHead = document.createElement("div");
+  settleHead.className = "mo-settle-title";
+  settleHead.textContent = "Settle up";
+  settle.appendChild(settleHead);
+
+  const L = normLedger(m);
+  const transfers = smartPayments(L);
+  if (!transfers.length) {
+    const even = document.createElement("div");
+    even.className = "mo-settle-even";
+    even.textContent = "All settled up — nobody owes anybody.";
+    settle.appendChild(even);
+  } else {
+    const list = document.createElement("div");
+    list.className = "mo-settle-list";
+    for (const t of transfers) {
+      const row = document.createElement("div");
+      row.className = "mo-settle-row";
+      row.innerHTML =
+        `<span class="mo-settle-from">${escHtml(nameOf(gs, t.from))}</span>` +
+        `<span class="mo-settle-verb">pays</span>` +
+        `<span class="mo-settle-to">${escHtml(nameOf(gs, t.to))}</span>` +
+        `<span class="mo-settle-amt">${money(t.amount)}</span>`;
+      list.appendChild(row);
+    }
+    settle.appendChild(list);
+    const hint = document.createElement("div");
+    hint.className = "mo-settle-hint";
+    hint.textContent = "Fewest transfers that settle every debt.";
+    settle.appendChild(hint);
+  }
+  card.appendChild(settle);
+
   const foot = document.createElement("div");
   foot.className = "mo-foot";
   const you = main.getYou && main.getYou();
@@ -512,18 +573,129 @@ function renderMatchOver(gs) {
     const nm = document.createElement("button");
     nm.className = "btn btn-primary";
     nm.textContent = "New Match";
-    nm.addEventListener("click", () => { els.matchOver.classList.add("hidden"); main.startNewMatch(); });
+    nm.addEventListener("click", () => { stopFireworks(); els.matchOver.classList.add("hidden"); main.startNewMatch(); });
     foot.appendChild(nm);
   }
   const leave = document.createElement("button");
   leave.className = "btn btn-ghost";
   leave.textContent = "Leave";
-  leave.addEventListener("click", () => main.leaveGame());
+  leave.addEventListener("click", () => { stopFireworks(); main.leaveGame(); });
   foot.appendChild(leave);
   card.appendChild(foot);
 
   els.matchOver.appendChild(card);
   els.matchOver.classList.remove("hidden");
+  startFireworks();
+}
+
+// ------------------------------------------------------------ fireworks finale
+
+let fxCanvas = null;
+let fxRaf = 0;
+let fxTimer = 0;
+
+function stopFireworks() {
+  if (fxRaf) { cancelAnimationFrame(fxRaf); fxRaf = 0; }
+  if (fxTimer) { clearInterval(fxTimer); fxTimer = 0; }
+  if (fxCanvas && fxCanvas.parentNode) fxCanvas.parentNode.removeChild(fxCanvas);
+  fxCanvas = null;
+}
+
+function startFireworks() {
+  stopFireworks();
+  if (!els.matchOver) return;
+
+  const canvas = document.createElement("canvas");
+  canvas.className = "match-fx";
+  els.matchOver.appendChild(canvas);
+  fxCanvas = canvas;
+
+  const ctx = canvas.getContext("2d");
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let cssW = 0, cssH = 0;
+  function measure() {
+    const r = els.matchOver.getBoundingClientRect();
+    // During the enter transition the overlay can report 0 — fall back to the viewport.
+    return {
+      w: r.width > 2 ? r.width : (window.innerWidth || 1),
+      h: r.height > 2 ? r.height : (window.innerHeight || 1),
+    };
+  }
+  function resize() {
+    const m = measure();
+    if (m.w === cssW && m.h === cssH) return;
+    cssW = m.w; cssH = m.h;
+    canvas.width = Math.max(1, Math.floor(cssW * dpr));
+    canvas.height = Math.max(1, Math.floor(cssH * dpr));
+    canvas.style.width = cssW + "px";
+    canvas.style.height = cssH + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  resize();
+
+  const COLORS = ["#f2c94c", "#ff6ea9", "#57e389", "#7c5cf0", "#ff9f45", "#4ea8ff"];
+  const particles = [];
+  const W = () => cssW;
+  const H = () => cssH;
+
+  function burst(x, y) {
+    const color = COLORS[(Math.random() * COLORS.length) | 0];
+    const count = 34 + ((Math.random() * 22) | 0);
+    const speed = 2.4 + Math.random() * 2.2;
+    for (let i = 0; i < count; i++) {
+      const a = (Math.PI * 2 * i) / count + Math.random() * 0.3;
+      const s = speed * (0.5 + Math.random() * 0.6);
+      particles.push({
+        x, y,
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s,
+        life: 1,
+        decay: 0.010 + Math.random() * 0.012,
+        color,
+        size: 1.6 + Math.random() * 1.8,
+      });
+    }
+  }
+
+  function launch() {
+    burst(W() * (0.15 + Math.random() * 0.7), H() * (0.15 + Math.random() * 0.4));
+  }
+
+  // Opening volley + gentle looping bursts.
+  launch();
+  setTimeout(launch, 260);
+  setTimeout(launch, 520);
+  fxTimer = setInterval(() => {
+    if (fxCanvas !== canvas) return;
+    launch();
+    if (Math.random() < 0.5) setTimeout(launch, 180);
+  }, 900);
+
+  function frame() {
+    if (fxCanvas !== canvas) return;
+    resize();   // self-correct once the overlay has real layout / on viewport resize
+    ctx.clearRect(0, 0, W(), H());
+    ctx.globalCompositeOperation = "lighter";
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.vy += 0.045;      // gravity
+      p.vx *= 0.985;      // drag
+      p.vy *= 0.985;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.life -= p.decay;
+      if (p.life <= 0) { particles.splice(i, 1); continue; }
+      ctx.globalAlpha = Math.max(0, p.life);
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size * p.life + 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+    fxRaf = requestAnimationFrame(frame);
+  }
+  fxRaf = requestAnimationFrame(frame);
 }
 
 function escHtml(s) {

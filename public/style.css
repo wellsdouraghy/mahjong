@@ -879,6 +879,7 @@ input[type="text"]::placeholder { color: var(--text-faint); }
 }
 .match-over-card {
   position: relative;
+  z-index: 2;
   min-width: 360px; max-width: 92vw;
   padding: 34px 40px;
   border-radius: 24px;
@@ -909,6 +910,46 @@ input[type="text"]::placeholder { color: var(--text-faint); }
 .mo-money { font-weight: 900; font-variant-numeric: tabular-nums; }
 .mo-row.up .mo-money { color: var(--green-bright); }
 .mo-row.down .mo-money { color: var(--red); }
+
+/* ---- Match-over: settle up (minimized transfers) ---- */
+.mo-settle {
+  margin: 0 0 22px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  text-align: left;
+}
+.mo-settle-title {
+  font-size: 11.5px; font-weight: 800; letter-spacing: 1px;
+  text-transform: uppercase; color: var(--text-faint);
+  margin-bottom: 10px; text-align: center;
+}
+.mo-settle-even {
+  font-size: 14px; color: var(--green-bright); font-weight: 700;
+  text-align: center; padding: 4px 0;
+}
+.mo-settle-list { display: flex; flex-direction: column; gap: 6px; }
+.mo-settle-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px; border-radius: 10px;
+  background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+  font-size: 14px;
+}
+.mo-settle-from { font-weight: 700; color: var(--text); }
+.mo-settle-verb { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--pink); }
+.mo-settle-to { font-weight: 700; color: var(--text); flex: 1; }
+.mo-settle-amt { font-weight: 900; color: var(--gold); font-variant-numeric: tabular-nums; }
+.mo-settle-hint { margin-top: 10px; font-size: 11px; color: var(--text-faint); text-align: center; }
+
+/* ---- Match-over fireworks finale (canvas layer) ---- */
+.match-fx {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
 .mo-foot { display: flex; gap: 12px; justify-content: center; }
 
 @media (max-width: 560px) {
@@ -990,6 +1031,19 @@ input[type="text"]::placeholder { color: var(--text-faint); }
 .fan-breakdown .fb-total .fb-pts { color: var(--green-bright); font-weight: 900; }
 /* Settlement popup variant — centered, roomier */
 .settle-fans { margin: 14px auto 0; max-width: 280px; }
+/* Winning-hand tile row in the settlement popup (the winning tile is ringed). */
+.settle-hand-label {
+  margin: 14px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 1.4px;
+  color: var(--text-faint);
+}
+.settle-hand {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 4px;
+  max-width: 340px; margin: 0 auto;
+}
+.settle-hand .winning-tile {
+  outline: 2px solid var(--gold); outline-offset: 1px; border-radius: 5px;
+  box-shadow: 0 0 12px rgba(242, 201, 76, 0.75);
+}
 /* Scoreboard history variant — compact */
 .sb-hand-fans { margin-top: 7px; }
 .sb-hand-fans .fb-row { padding: 2px 8px; }
