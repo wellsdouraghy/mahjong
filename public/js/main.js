@@ -3,6 +3,7 @@ import * as lobby from "./lobby.js";
 import * as scene from "./scene.js";
 import * as hud from "./hud.js";
 import * as scoreboard from "./scoreboard.js";
+import * as chat from "./chat.js";
 
 const RECONNECT_MS = 2000;
 
@@ -49,6 +50,9 @@ export function claimAction(action, chiTiles) {
 }
 // v5: declare a kong on your turn (concealed or added — server determines & validates).
 export function declareKong(kind) { rawSend({ type: "declareKong", kind }); }
+
+// Room chat: send a chat message to everyone in your room.
+export function sendChat(text) { rawSend({ type: "chat", text: String(text == null ? "" : text) }); }
 
 // v4 match / lobby-bot helpers
 export function addBot() { rawSend({ type: "addBot" }); }
@@ -143,6 +147,7 @@ function dispatch(msg) {
     case "lobby":
       state.rooms = msg.rooms || [];
       state.you = msg.you || null;
+      chat.setRoom(!!(state.you && state.you.roomId));
       lobby.onLobby(msg);
       // If a lobby update arrives while we're still in the game view but the
       // server no longer has us in an active room, drop back to the lobby.
@@ -155,6 +160,10 @@ function dispatch(msg) {
 
     case "gameState":
       onGameState(msg.state);
+      break;
+
+    case "chat":
+      chat.handleMessage(msg);
       break;
 
     case "error":
@@ -227,6 +236,7 @@ function init() {
   hud.init();
   scoreboard.init();
   scene.init(document.getElementById("scene-container"));
+  chat.init();
   setConn(false);
   connect();
 }

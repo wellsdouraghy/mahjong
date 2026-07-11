@@ -85,6 +85,35 @@ function nameOf(gs, seat) {
   return p && p.name ? p.name : `Seat ${seat + 1}`;
 }
 
+// Self-contained falling-emoji effect (used to rain sad/angry emojis on the loser
+// of a hand). Injects its own keyframes once; the layer auto-removes.
+let _emojiKfInjected = false;
+function emojiRain(container, emojis, count) {
+  if (!container) return;
+  if (!_emojiKfInjected) {
+    const st = document.createElement("style");
+    st.textContent =
+      "@keyframes sbEmojiFall{0%{transform:translateY(-24px) rotate(0deg);opacity:0}" +
+      "12%{opacity:1}100%{transform:translateY(420px) rotate(35deg);opacity:0}}";
+    document.head.appendChild(st);
+    _emojiKfInjected = true;
+  }
+  const layer = document.createElement("div");
+  layer.style.cssText = "position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:3;";
+  for (let i = 0; i < count; i++) {
+    const s = document.createElement("span");
+    s.textContent = emojis[i % emojis.length];
+    const left = Math.round((i + 0.5) / count * 100);
+    const dur = 1.6 + (i % 5) * 0.25;
+    s.style.cssText = "position:absolute;top:0;left:" + left + "%;font-size:" +
+      (18 + (i % 3) * 7) + "px;animation:sbEmojiFall " + dur + "s ease-in forwards;" +
+      "animation-delay:" + ((i % 6) * 0.09).toFixed(2) + "s;";
+    layer.appendChild(s);
+  }
+  container.appendChild(layer);
+  setTimeout(() => layer.remove(), 3400);
+}
+
 function money(v) {
   const n = Math.round(v || 0);
   return n < 0 ? `-$${Math.abs(n)}` : `$${n}`;
@@ -400,16 +429,22 @@ function renderSettlementPopup(gs) {
     const payments = Array.isArray(st.payments) ? st.payments : [];
     const winnerSeat = w.seat != null ? w.seat : (payments[0] ? payments[0].to : gs.yourSeat);
     const won = payments.filter((p) => p.to === winnerSeat).reduce((s, p) => s + (p.amount || 0), 0);
+    const iWon = gs.yourSeat != null && winnerSeat === gs.yourSeat;
 
-    // Confetti burst
-    const conf = document.createElement("div");
-    conf.className = "confetti";
-    for (let i = 0; i < 14; i++) {
-      const bit = document.createElement("span");
-      bit.style.setProperty("--i", i);
-      conf.appendChild(bit);
+    if (iWon) {
+      // You won — celebratory confetti burst.
+      const conf = document.createElement("div");
+      conf.className = "confetti";
+      for (let i = 0; i < 14; i++) {
+        const bit = document.createElement("span");
+        bit.style.setProperty("--i", i);
+        conf.appendChild(bit);
+      }
+      card.appendChild(conf);
+    } else {
+      // Someone else won — rain sad/angry emojis on the loser.
+      emojiRain(card, ["😭", "😠", "💸", "😤", "😩", "😫"], 18);
     }
-    card.appendChild(conf);
 
     const body = document.createElement("div");
     body.className = "settle-body";

@@ -89,6 +89,18 @@ function sanitizeName(raw) {
   return name.length >= 1 ? name : null;
 }
 
+// Chat text: coerce to string, strip control chars, collapse whitespace, cap length.
+const CHAT_MAX_LEN = 200;
+function sanitizeChatText(raw) {
+  if (typeof raw !== 'string' && typeof raw !== 'number') return null;
+  const text = String(raw)
+    .replace(/[\x00-\x1f\x7f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, CHAT_MAX_LEN);
+  return text.length >= 1 ? text : null;
+}
+
 // Short human join codes: unambiguous uppercase letters + digits (no 0/O/1/I).
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 function roomByCode(code) {
@@ -478,6 +490,26 @@ function handleMessage(client, msg) {
         room.match.game.declareKong(seat, msg.kind);
       } catch (e) {
         sendError(client.ws, e.message);
+      }
+      break;
+    }
+
+    case 'chat': {
+      // Room chat: sender must be in a room (waiting OR mid-match). Broadcast to
+      // every connected human in that same room. Never crash on bad input.
+      const room = client.roomId ? rooms.get(client.roomId) : null;
+      if (!room) { sendError(client.ws, 'join a room to chat'); return; }
+      const text = sanitizeChatText(msg.text);
+      if (!text) return; // empty/garbage — ignore silently
+      // Light rate-limit: drop if more than 5 messages in the last 2 seconds.
+      const now = Date.now();
+      if (!Array.isArray(client.chatTimes)) client.chatTimes = [];
+      client.chatTimes = client.chatTimes.filter((t) => now - t < 2000);
+      if (client.chatTimes.length >= 5) return; // too fast — drop
+      client.chatTimes.push(now);
+      const payload = { type: 'chat', from: client.id, name: client.name, text, ts: now };
+      for (const c of clients.values()) {
+        if (c.roomId === room.id) send(c.ws, payload);
       }
       break;
     }

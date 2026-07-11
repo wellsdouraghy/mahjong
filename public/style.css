@@ -601,6 +601,38 @@ input[type="text"]::placeholder { color: var(--text-faint); }
 .corner-right:hover { border-color: var(--blue); background: rgba(28, 40, 62, 0.9); }
 .corner-right.active { border-color: var(--blue); background: rgba(28, 44, 70, 0.95); box-shadow: 0 0 0 2px rgba(78,168,255,0.35), 0 8px 22px rgba(0,0,0,0.4); }
 
+/* ---- View + sound toggles (top-left, below the wall count) ---- */
+.hud-toggles {
+  position: absolute;
+  top: 92px;
+  left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 25;
+}
+.toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 22px rgba(0,0,0,0.4);
+  transition: transform 0.16s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.2s, border-color 0.2s, background 0.2s;
+}
+.toggle-btn:hover { transform: translateY(-2px) scale(1.04); border-color: var(--blue); background: rgba(28, 40, 62, 0.9); }
+.toggle-btn:active { transform: translateY(0) scale(0.97); }
+.toggle-btn.active { border-color: var(--blue); background: rgba(28, 44, 70, 0.95); box-shadow: 0 0 0 2px rgba(78,168,255,0.35), 0 8px 22px rgba(0,0,0,0.4); }
+.toggle-btn .corner-icon { font-size: 16px; }
+
 /* ---- Claim panel (big, animated, countdown) ---- */
 .claim-panel {
   position: absolute;

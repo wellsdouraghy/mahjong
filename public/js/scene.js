@@ -3,6 +3,7 @@
 import * as THREE from "three";
 import { makeTileMesh, TILE_H, TILE_D } from "./tiles.js";
 import * as main from "./main.js";
+import * as sound from "./sound.js";
 
 // ---- Layout constants (in a seat's LOCAL frame; +Z points outward toward that player) ----
 // Clean concentric radial bands from the table centre outward so no group
@@ -205,6 +206,16 @@ const DEAL_BATCH = 7;            // tiles per stagger step (a "batch" around the
 const DEAL_STEP_MS = 45;         // gap between successive batches
 const DEAL_FLOWER_STEP_MS = 100; // gap between flower pop-ins at the end
 
+// ---- Sound triggers (aesthetic clacks + your-turn ding) ----
+// Throttled so the opening deal never machine-guns. We suppress clacks during
+// the fresh-deal pass and cap to one clack per state change with a short cooldown.
+let prevDiscardSig = null;       // "seat:tileId" of the last discard we clacked
+let prevDrawnId = null;          // id of your last drawn tile (local draw clack)
+let lastClackMs = 0;             // cooldown gate for clacks
+let prevTurn = null;             // previous state.turn (for the your-turn ding)
+let prevTurnPhase = null;        // previous state.turnPhase
+const CLACK_COOLDOWN = 140;      // ms between clacks
+
 // ---- Flower petal burst (feature 2) ----
 let prevYourFlowers = null;      // previous local flower count (null = unknown)
 let petalLayer = null;           // absolutely-positioned overlay div over the canvas
@@ -254,6 +265,47 @@ const LOOK_EASE = 0.03;   // slow, heavy smoothing — lazy drift, not a head-sw
 
 let lookTargetYaw = 0, lookTargetPitch = 0;   // driven by pointer position
 let lookYaw = 0, lookPitch = 0;               // eased current offsets
+
+// ================= bird's-eye view toggle =================
+// An alternate fixed camera pose: high above CAM_TARGET looking steeply down so
+// all four seats' tile areas (melds, flowers, discards) + the middle fit at once.
+// While on, the mouse-follow head-turn is frozen (held at 0) for a stable shot.
+// The preference is persisted so it survives reloads.
+const BIRDSEYE_KEY = "mj_birdsEye";
+let birdsEye = (() => {
+  try { return localStorage.getItem(BIRDSEYE_KEY) === "1"; } catch (e) { return false; }
+})();
+export function getBirdsEye() { return birdsEye; }
+export function setBirdsEye(on) {
+  birdsEye = !!on;
+  try { localStorage.setItem(BIRDSEYE_KEY, birdsEye ? "1" : "0"); } catch (e) {}
+  // Freeze the head-turn so the top-down shot is stable; when turning it back
+  // off the offsets are already 0 so the seated pose restores exactly.
+  lookYaw = 0; lookPitch = 0; lookTargetYaw = 0; lookTargetPitch = 0;
+  updateCameraPose();
+  reflectBirdsEyeButton();
+}
+
+// Reflect the current toggle states on their HUD buttons (icon/label + .active).
+function reflectBirdsEyeButton() {
+  const b = document.getElementById("birdseye-btn");
+  if (!b) return;
+  b.classList.toggle("active", birdsEye);
+  b.setAttribute("aria-pressed", birdsEye ? "true" : "false");
+  const label = b.querySelector(".corner-label");
+  if (label) label.textContent = birdsEye ? "Seated view" : "Bird's-eye";
+}
+function reflectSoundButton() {
+  const b = document.getElementById("sound-btn");
+  if (!b) return;
+  const on = sound.isSoundOn();
+  b.classList.toggle("active", on);
+  b.setAttribute("aria-pressed", on ? "true" : "false");
+  const icon = b.querySelector(".corner-icon");
+  if (icon) icon.textContent = on ? "🔊" : "🔇";
+  const label = b.querySelector(".corner-label");
+  if (label) label.textContent = on ? "Sound on" : "Sound off";
+}
 
 // Map a normalized cursor axis (-1..1) through a centre deadzone to a lean
 // amount (-1..1): flat near the middle, ramping smoothly toward the edges.
@@ -311,6 +363,15 @@ export function init(mountEl) {
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("resize", onResize);
 
+  // HUD toggle buttons (bird's-eye view + sound). Wired here so we don't need to
+  // touch main.js / hud.js. Query by id; harmless if the markup is absent.
+  const beBtn = document.getElementById("birdseye-btn");
+  if (beBtn) beBtn.addEventListener("click", () => setBirdsEye(!birdsEye));
+  reflectBirdsEyeButton();
+  const sndBtn = document.getElementById("sound-btn");
+  if (sndBtn) sndBtn.addEventListener("click", () => { sound.setSoundOn(!sound.isSoundOn()); reflectSoundButton(); });
+  reflectSoundButton();
+
   running = true;
   el.style.display = "none";
   animate();
@@ -342,6 +403,17 @@ function applyCameraFraming() {
 }
 
 function updateCameraPose() {
+  if (birdsEye) {
+    // High, near-straight-down shot centered on the table. Height scales with the
+    // viewport so all four seats' tile bands fit; the tiny +z bias defines "up"
+    // (the near/south seat sits at the bottom of the frame) since a perfectly
+    // vertical lookAt would leave the roll ambiguous. camZoom still applies.
+    const a = aspect();
+    const h = (a < 0.85 ? 42 : a < 1.25 ? 34 : 36) * camZoom;
+    camera.position.set(CAM_TARGET.x, CAM_TARGET.y + h, CAM_TARGET.z + 0.001);
+    camera.lookAt(CAM_TARGET);
+    return;
+  }
   const yaw = camBase.yaw + lookYaw;
   const pitch = THREE.MathUtils.clamp(camBase.pitch + lookPitch, PITCH_MIN, PITCH_MAX);
   const dist = camBase.dist * camZoom;
@@ -356,6 +428,12 @@ function updateCameraPose() {
 
 // Ease the current look offsets toward the pointer-driven target every frame.
 function updateCameraFollow() {
+  // Bird's-eye is a fixed top-down shot: freeze the mouse-follow entirely.
+  if (birdsEye) {
+    lookTargetYaw = 0; lookTargetPitch = 0; lookYaw = 0; lookPitch = 0;
+    updateCameraPose();
+    return;
+  }
   // While a claim window is open, hold the view dead-center so the claimable
   // tile and the HUD buttons never drift out from under the cursor.
   if (claimFreeze) { lookTargetYaw = 0; lookTargetPitch = 0; }
@@ -1436,6 +1514,30 @@ export function update(state) {
     }
   }
   prevYourFlowers = yourFlowers;
+
+  // ---- Sound triggers (throttled; silent during the opening deal) ----
+  const ld = state.lastDiscard;
+  const discSig = (ld && ld.tile) ? `${ld.seat}:${ld.tile.id}` : null;
+  const drawnId = state.drawnTile ? state.drawnTile.id : null;
+  if (!freshDeal && !dealing) {
+    const now = performance.now();
+    // A NEW discard appeared, or YOU drew a fresh tile → one subtle clack.
+    const newDiscard = discSig && discSig !== prevDiscardSig;
+    const newDraw = drawnId != null && drawnId !== prevDrawnId;
+    if ((newDiscard || newDraw) && now - lastClackMs > CLACK_COOLDOWN) {
+      sound.playTileClack();
+      lastClackMs = now;
+    }
+    // Gentle ding when YOUR discard turn begins (not during claims, once per turn).
+    const yourTurnNow = isPlaying && state.turn === you &&
+      state.turnPhase === "discard" && (state.claimOptions || []).length === 0;
+    const wasYourTurn = prevTurn === you && prevTurnPhase === "discard";
+    if (yourTurnNow && !wasYourTurn) sound.playTurnDing();
+  }
+  prevDiscardSig = discSig;
+  prevDrawnId = drawnId;
+  prevTurn = state.turn;
+  prevTurnPhase = state.turnPhase;
 }
 
 // Lay a seat's exposed melds and concealed hand as ONE left-anchored single row
@@ -2016,6 +2118,12 @@ export function clearScene() {
   wasPlaying = false;
   prevHandNumber = null;
   prevYourFlowers = null;
+  // Reset sound-trigger tracking so the next game doesn't clack/ding on rejoin.
+  prevDiscardSig = null;
+  prevDrawnId = null;
+  lastClackMs = 0;
+  prevTurn = null;
+  prevTurnPhase = null;
   dealing = false;
   dealFlowerMeshes.length = 0;
   if (petalLayer) { petalLayer.remove(); petalLayer = null; }

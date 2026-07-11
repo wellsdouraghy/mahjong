@@ -1,7 +1,7 @@
 // hud.js — turn banner, match bar, wall count, animated claim panel, winner overlay.
 import * as main from "./main.js";
 import * as scoreboard from "./scoreboard.js";
-import { chipInfo } from "./tiles.js";
+import { chipInfo, getFaceDataUrl } from "./tiles.js";
 
 let els = {};
 
@@ -301,8 +301,25 @@ function renderScore(score) {
 
 // Shared 2D tile-chip renderer (reused by scoreboard.js).
 export function makeChip(kind, isMeld) {
-  const info = chipInfo(kind);
   const chip = document.createElement("div");
+  chip.className = "tile-chip" + (isMeld ? " meld" : "");
+  // Use the ACTUAL tile face (same canvas art as the 3D tiles) so chips match
+  // what's on the table, instead of a stylized text approximation.
+  const url = getFaceDataUrl(kind);
+  if (url) {
+    chip.style.background = "transparent";
+    chip.style.border = "none";
+    chip.style.overflow = "hidden";
+    const img = document.createElement("img");
+    img.src = url;
+    img.alt = kind;
+    img.draggable = false;
+    img.style.cssText = "width:100%;height:100%;object-fit:cover;display:block;border-radius:inherit;";
+    chip.appendChild(img);
+    return chip;
+  }
+  // Fallback: the old text chip if the face texture couldn't be produced.
+  const info = chipInfo(kind);
   chip.className = `tile-chip ${info.cls}` + (isMeld ? " meld" : "");
   const main = document.createElement("span");
   main.textContent = info.char;

@@ -616,6 +616,17 @@ export function getFaceTexture(kind) {
   return tex;
 }
 
+// The real tile face as a PNG data URL (cached), so 2D chips in the HUD look
+// exactly like the tiles on the table instead of a stylized approximation.
+const _faceUrlCache = new Map();
+export function getFaceDataUrl(kind) {
+  if (_faceUrlCache.has(kind)) return _faceUrlCache.get(kind);
+  let url = "";
+  try { url = drawFace(kind).toDataURL("image/png"); } catch (e) {}
+  _faceUrlCache.set(kind, url);
+  return url;
+}
+
 function getBackTexture() {
   if (_backTex) return _backTex;
   const c = document.createElement("canvas");
