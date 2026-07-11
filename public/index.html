@@ -118,23 +118,32 @@
     <!-- On-your-turn self actions (Kong declarations) -->
     <div id="self-actions" class="self-actions hidden"></div>
 
-    <!-- View + sound toggles (top-left, stacked below the wall count) -->
-    <div id="hud-toggles" class="hud-toggles">
-      <button id="birdseye-btn" class="toggle-btn" type="button" aria-pressed="false" title="Toggle bird's-eye view">
-        <span class="corner-icon">🦅</span><span class="corner-label">Bird's-eye</span>
-      </button>
-      <button id="sound-btn" class="toggle-btn" type="button" aria-pressed="true" title="Toggle sound">
-        <span class="corner-icon">🔊</span><span class="corner-label">Sound on</span>
-      </button>
-    </div>
+    <!-- Full-screen "your turn" glow (toggled by hud.js) -->
+    <div id="turn-glow" class="turn-glow" aria-hidden="true"></div>
 
-    <!-- Corner controls -->
-    <button id="leave-game-btn" class="corner-btn corner-left" title="Leave the match">
-      <span class="corner-icon">🚪</span><span class="corner-label">Leave</span>
-    </button>
-    <button id="scoreboard-btn" class="corner-btn corner-right" title="Toggle scoreboard">
-      <span class="corner-icon">📊</span><span class="corner-label">Scoreboard</span>
-    </button>
+    <!-- Bottom-right control dock: chat button (injected left of it by chat.js)
+         plus an expandable menu holding scoreboard / bird's-eye / sound / leave. -->
+    <div id="hud-dock" class="hud-dock">
+      <div id="fab" class="fab">
+        <div id="fab-items" class="fab-items">
+          <button id="scoreboard-btn" class="dock-btn" type="button" title="Scoreboard">
+            <span class="corner-icon">📊</span><span class="corner-label">Scoreboard</span>
+          </button>
+          <button id="birdseye-btn" class="dock-btn" type="button" aria-pressed="false" title="Toggle bird's-eye view">
+            <span class="corner-icon">🦅</span><span class="corner-label">Bird's-eye</span>
+          </button>
+          <button id="sound-btn" class="dock-btn" type="button" aria-pressed="true" title="Toggle sound">
+            <span class="corner-icon">🔊</span><span class="corner-label">Sound on</span>
+          </button>
+          <button id="leave-game-btn" class="dock-btn dock-danger" type="button" title="Leave the match">
+            <span class="corner-icon">🚪</span><span class="corner-label">Leave</span>
+          </button>
+        </div>
+        <button id="fab-toggle" class="fab-toggle" type="button" aria-expanded="false" aria-label="Open menu">
+          <span class="fab-icon">☰</span>
+        </button>
+      </div>
+    </div>
 
     <!-- Scoreboard panel (built by scoreboard.js) -->
     <div id="scoreboard-panel" class="scoreboard-panel hidden"></div>

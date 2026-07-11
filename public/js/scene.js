@@ -13,7 +13,14 @@ const HAND_Z = 11.2;             // your face-up hand row (at the near edge)
 const OPP_HAND_Z = 11.0;         // opponents' face-down hand rows
 const HAND_STEP = 0.96;
 const DRAW_GAP = 0.7;
-const STAND_Y = TILE_H / 2;      // standing tile center height
+const FELT_TOP = 0.02;           // top surface of the felt (tiles rest here)
+const STAND_Y = TILE_H / 2;      // standing tile center height (legacy/general)
+// Rest heights that put a standing tile's LOWEST edge on the felt instead of
+// dipping below it. Opponent tiles stand upright; the player's own hand tilts
+// back, so its lowest corner is farther from center and needs extra lift.
+const YOU_TILT = Math.PI / 6;
+const STAND_Y_OPP = FELT_TOP + TILE_H / 2;
+const STAND_Y_YOU = FELT_TOP + (TILE_H / 2) * Math.cos(YOU_TILT) + (TILE_D / 2) * Math.sin(YOU_TILT);
 const FLAT_Y = 0.33;             // flat tile center height
 const DISCARD_Z0 = 3.4;          // primary discard row (nearest the centre pad)
 const DISCARD_ROW = 1.26;        // row pitch ≥ flat-tile depth (TILE_H) so rows never overlap
@@ -100,12 +107,12 @@ const SEASONS = [
     sky: 0xdff0ff, skyEmis: 0xd8f0ff, skyEI: 0.85,
     sun: 0.0, particle: "petal",
   },
-  { // 1 SUMMER — sunny, hot, strong golden light, bright sun through windows
-    bg: 0x86c8ff, fog: [0xbfe0ff, 66, 128],
-    ambient: [0xfff0cf, 1.12], hemi: [0xfff3d2, 0x7f8a4a, 0.9],
-    key: [0xffe39a, 1.7], fill: [0xfff0cf, 0.62],
-    sky: 0xfff2c4, skyEmis: 0xfff0b0, skyEI: 1.35,
-    sun: 1.7, particle: null,
+  { // 1 SUMMER — bright clear-sky daylight; clean warm-white sun, not golden/yellow
+    bg: 0x8fd2ff, fog: [0xcdeaff, 72, 140],
+    ambient: [0xfff8f0, 1.22], hemi: [0xffffff, 0x93a86a, 0.98],
+    key: [0xfff5e6, 1.5], fill: [0xe6f2ff, 0.72],
+    sky: 0xfff7ea, skyEmis: 0xfff2de, skyEI: 1.18,
+    sun: 1.35, particle: null,
   },
   { // 2 FALL — autumn amber, warm, falling leaves
     bg: 0x6f5236, fog: [0x8a5f34, 52, 108],
@@ -1564,6 +1571,7 @@ function placeSeatRow(dp, isYou, seat, melds, handTiles, handCount, drawn) {
 
   const zRow = isYou ? HAND_Z : OPP_HAND_Z;
   const qStand = isYou ? Q_STAND_YOU : Q_STAND_OPP;
+  const standY = isYou ? STAND_Y_YOU : STAND_Y_OPP;
   const mStep = MELD_STEP * sc, hStep = HAND_STEP * sc;
   const mGap = MELD_GAP * sc, midG = midGap * sc, dGap = DRAW_GAP * sc;
 
@@ -1598,17 +1606,17 @@ function placeSeatRow(dp, isYou, seat, melds, handTiles, handCount, drawn) {
   // Concealed hand — standing; yours face-up & clickable, opponents' face-down.
   if (isYou) {
     for (const t of handTiles) {
-      placeTile(`id:${t.id}`, t.kind, false, dp, x + hStep / 2, STAND_Y, zRow, qStand,
+      placeTile(`id:${t.id}`, t.kind, false, dp, x + hStep / 2, standY, zRow, qStand,
         { hand: true, tileId: t.id });
       x += hStep;
     }
     if (drawn) {
-      placeTile(`id:${drawn.id}`, drawn.kind, false, dp, x + dGap + hStep / 2, STAND_Y, zRow,
+      placeTile(`id:${drawn.id}`, drawn.kind, false, dp, x + dGap + hStep / 2, standY, zRow,
         qStand, { hand: true, tileId: drawn.id, drawn: true });
     }
   } else {
     for (let i = 0; i < handCount; i++) {
-      placeTile(`hand:${seat}:${i}`, null, true, dp, x + hStep / 2, STAND_Y, zRow, qStand, {});
+      placeTile(`hand:${seat}:${i}`, null, true, dp, x + hStep / 2, standY, zRow, qStand, {});
       x += hStep;
     }
   }

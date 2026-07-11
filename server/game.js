@@ -483,10 +483,42 @@ class Game {
     }
 
     this.claimWindow.responses[seat] = action;
-    const eligible = Object.keys(this.claimWindow.options).map(Number);
-    const allResponded = eligible.every((s) => this.claimWindow.responses[s]);
-    if (allResponded) this.resolveClaims();
-    else this.emit();
+    this.maybeResolveClaims();
+  }
+
+  // Priority rank of a claim: ron beats pon/kong, which beat chi.
+  claimRank(action) {
+    if (action === 'ron') return 3;
+    if (action === 'pon' || action === 'kong') return 2;
+    if (action === 'chi') return 1;
+    return 0; // pass / none
+  }
+
+  // Resolve the claim window the moment the winner is mathematically settled,
+  // instead of waiting for every eligible seat to click. Mahjong has strict
+  // claim priority, so a seat that could only make a LOWER-priority claim than
+  // one already declared can't change the outcome — we don't hold the window
+  // open on them. Only one seat can ever pon/kong a given tile (there are just
+  // four of each) and only the seat to the discarder's left can chi, so the only
+  // same-priority contest across seats is multiple rons, which we still wait on
+  // (resolveClaims settles those by turn order). This keeps "pon always beats a
+  // chi behind it" strict without the who-clicks-first race.
+  maybeResolveClaims() {
+    const cw = this.claimWindow;
+    if (!cw) return;
+    const eligible = Object.keys(cw.options).map(Number);
+    let best = 0; // highest-priority claim committed so far (passes = 0)
+    for (const s of eligible) {
+      if (cw.responses[s]) best = Math.max(best, this.claimRank(cw.responses[s]));
+    }
+    for (const s of eligible) {
+      if (cw.responses[s]) continue;
+      const maxOpt = Math.max(...cw.options[s].map((o) => this.claimRank(o)));
+      // This seat can still outrank the best (or, for rons, tie and possibly
+      // precede it in turn order) — the outcome isn't settled yet.
+      if (maxOpt > best || (best === 3 && maxOpt === 3)) { this.emit(); return; }
+    }
+    this.resolveClaims();
   }
 
   resolveClaims() {

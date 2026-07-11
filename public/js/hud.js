@@ -42,6 +42,10 @@ export function init() {
     selfActions: document.getElementById("self-actions"),
     leaveBtn: document.getElementById("leave-game-btn"),
     scoreboardBtn: document.getElementById("scoreboard-btn"),
+    turnGlow: document.getElementById("turn-glow"),
+    fab: document.getElementById("fab"),
+    fabToggle: document.getElementById("fab-toggle"),
+    fabItems: document.getElementById("fab-items"),
     winnerOverlay: document.getElementById("winner-overlay"),
     winnerTitle: document.getElementById("winner-title"),
     winnerSubtitle: document.getElementById("winner-subtitle"),
@@ -53,6 +57,28 @@ export function init() {
   els.backBtn.addEventListener("click", () => main.backToRoom());
   els.leaveBtn.addEventListener("click", () => main.leaveGame());
   els.scoreboardBtn.addEventListener("click", () => scoreboard.toggle());
+  initDock();
+}
+
+// Expandable bottom-right action menu. The ☰ toggle reveals the stacked actions;
+// picking any action (or clicking elsewhere) collapses it again.
+function setDockOpen(open) {
+  if (!els.fab) return;
+  els.fab.classList.toggle("open", open);
+  if (els.fabToggle) els.fabToggle.setAttribute("aria-expanded", open ? "true" : "false");
+}
+function initDock() {
+  if (!els.fabToggle) return;
+  els.fabToggle.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setDockOpen(!els.fab.classList.contains("open"));
+  });
+  // Any action inside the menu collapses it after acting.
+  if (els.fabItems) els.fabItems.addEventListener("click", () => setDockOpen(false));
+  // Click anywhere outside the dock closes it.
+  document.addEventListener("click", (e) => {
+    if (els.fab && els.fab.classList.contains("open") && !els.fab.contains(e.target)) setDockOpen(false);
+  });
 }
 
 export function update(state) {
@@ -87,14 +113,20 @@ function renderMatchBar(state) {
   els.matchBar.classList.add("hidden");
 }
 
+function setTurnGlow(on) {
+  if (els.turnGlow) els.turnGlow.classList.toggle("active", !!on);
+}
+
 function renderBanner(state, finished) {
   if (finished) {
     els.banner.classList.remove("your-turn");
     els.banner.textContent = state.match ? "Hand over" : "Round over";
+    setTurnGlow(false);
     return;
   }
   const you = state.yourSeat;
   const yourTurn = state.turn === you && state.turnPhase !== "claims";
+  setTurnGlow(yourTurn);
   if (yourTurn) {
     els.banner.classList.add("your-turn");
     els.banner.textContent = "Your turn — click a tile to discard";
@@ -341,6 +373,7 @@ function escHtml(s) {
 export function reset() {
   els.banner.textContent = "";
   els.banner.classList.remove("your-turn");
+  setTurnGlow(false);
   renderClaims([]);
   if (els.selfActions) { els.selfActions.classList.add("hidden"); els.selfActions.innerHTML = ""; }
   els.matchBar.classList.add("hidden");

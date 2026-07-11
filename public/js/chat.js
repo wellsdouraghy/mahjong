@@ -24,15 +24,14 @@ const STYLE = `
 }
 #chat-root, #chat-root * { box-sizing: border-box; }
 
-/* Toggle button — bottom-center, clear of Leave (bottom-left) & Scoreboard (bottom-right). */
+/* Toggle button — bottom-right, immediately left of the action menu (#fab). */
 #chat-toggle {
   position: fixed;
-  left: 50%;
+  right: 86px;
   bottom: 18px;
-  transform: translateX(-50%);
   z-index: 90;
-  width: 54px;
-  height: 54px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   border: 1px solid var(--chat-border-strong);
   background: linear-gradient(150deg, #2a2050, #17203a);
@@ -46,8 +45,8 @@ const STYLE = `
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5);
   transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
 }
-#chat-toggle:hover { transform: translateX(-50%) translateY(-3px) scale(1.05); box-shadow: 0 14px 30px rgba(0,0,0,0.55); }
-#chat-toggle:active { transform: translateX(-50%) scale(0.96); }
+#chat-toggle:hover { transform: translateY(-3px) scale(1.05); box-shadow: 0 14px 30px rgba(0,0,0,0.55); }
+#chat-toggle:active { transform: scale(0.96); }
 #chat-root.in-room #chat-toggle { display: flex; }
 #chat-root.open #chat-toggle { background: linear-gradient(150deg, #3a2c66, #1c2748); }
 
